@@ -17,7 +17,7 @@ from sklearn.linear_model import LinearRegression
 from scipy.stats import pearsonr as corr
 
 # Local imports
-from utils import get_dataloaders, get_dataloaders_unshuffled, get_roi_mapping_files, fit_pca
+from utils import get_dataloaders, get_roi_mapping_files, fit_pca
 
 
 # Command line arguments
