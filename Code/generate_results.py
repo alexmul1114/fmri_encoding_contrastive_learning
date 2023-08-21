@@ -18,7 +18,7 @@ parser.add_argument("--root", help="Path to main folder of project", required=Tr
 parser.add_argument("--device", help="Device to use for training, cpu or cuda", required=True)
 parser.add_argument("--subj", help="Subject number, 1 through 8", type=int, required=True)
 parser.add_argument("--hemisphere", help="Hemisphere, either left or right", type=str, required=True)
-parser.add_argument("--type", help="Options are single-subj, cross-subj, violin, classification-task", type=str, required=True)
+parser.add_argument("--type", help="Options are single-subj, cross-subj, classification-task", type=str, required=True)
 parser.add_argument("--comparator", help="comparison method for violin plot (Control or Regression)", type=str, required=False, default="Control")
 parser.add_argument("--rois", help="List of rois", nargs='+', type=str, required=False, default=[])
 parser.add_argument("--training", help="Whether to use training results for cross-subj", type=bool, required=False, default=False)
@@ -53,8 +53,6 @@ if __name__ == '__main__':
     elif (method=='cross-subj'):
         for roi in rois:
             get_results_cross_subj(project_dir, device, hemisphere, roi, num_subjs=8, reg=True, training_results=use_training_results)
-    elif (method=="violin"):
-        get_violin_plot(subj_num, hemisphere, rois, comparator)
     elif (method=='classification-task'):
         image_classification_results(project_dir, subj_num, hemisphere, rois, device, tuning_method, img_dataset, save=True)
     else:
