@@ -9,7 +9,7 @@ import torch
 from argparse import ArgumentParser
 
 # Local imports
-from utils import get_dataloaders, get_dataloaders_unshuffled
+from utils import get_dataloaders
 from models import get_CL_model, train
 
 
@@ -44,7 +44,7 @@ if __name__ == '__main__':
     epochs = args.epochs
     
     # Get dataloaders
-    train_dataloader, test_dataloader, train_size, test_size, num_voxels = get_dataloaders_unshuffled(project_dir, device, subj_num, hemisphere, roi, batch_size)
+    train_dataloader, test_dataloader, train_size, test_size, num_voxels = get_dataloaders(project_dir, device, subj_num, hemisphere, roi, batch_size)
     if (num_voxels==0):
         print("Empty ROI")
         sys.exit()

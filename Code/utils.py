@@ -188,8 +188,7 @@ class algoDataSet_imgs_only(Dataset):
         return img, idx
     
     
-    
-    
+
 # Function to create dataloaders
 def get_dataloaders(data_dir, device, subj_num, hemisphere, roi_name, batch_size=1024, voxel_subset=False, voxel_subset_num=0, use_all_data=False):
 
@@ -214,43 +213,6 @@ def get_dataloaders(data_dir, device, subj_num, hemisphere, roi_name, batch_size
         train_size = int(0.85 * len(dataset))
         test_size = len(dataset) - train_size
         train_dataset, test_dataset = torch.utils.data.random_split(dataset, [train_size, test_size])
-        train_dataloader = DataLoader(dataset=train_dataset, batch_size=batch_size, shuffle=False)
-        test_dataloader = DataLoader(dataset=test_dataset, batch_size=batch_size, shuffle=False)
-    
-    return train_dataloader, test_dataloader, train_size, test_size, num_voxels
-
-
-
-# Function to get unshuffled dataloaders, can use to ensure multiple different dataloaders have same train/test split and ordering
-def get_dataloaders_unshuffled(data_dir, device, subj_num, hemisphere, roi_name, batch_size=1024, voxel_subset=False, voxel_subset_num=0, use_all_data=False):
-
-    generator1 = torch.Generator().manual_seed(0)
-    if (voxel_subset==False):
-        dataset = algoDataSet(data_dir, device, subj_num, hemisphere, roi_name)
-    else:
-        dataset = algoDataSet(data_dir, device, subj_num, hemisphere, roi_name, True, voxel_subset_num)
-    # Make sure ROI is not empty
-    num_voxels = len(dataset[0][0])
-    if (num_voxels==0):
-        #print("Empty ROI")
-        if (use_all_data):
-            return 0,0,0
-        else:
-            return 0,0,0,0, num_voxels
-    if (use_all_data):
-        train_size = len(dataset)
-        train_dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False)
-        return train_dataloader, train_size, num_voxels
-    else:
-        train_size = int(0.85 * len(dataset))
-        test_size = len(dataset) - train_size
-        
-        train_idxs = torch.arange(0, train_size)
-        test_idxs = torch.arange(train_size, train_size+test_size)
-
-        train_dataset = torch.utils.data.Subset(dataset, train_idxs)
-        test_dataset = torch.utils.data.Subset(dataset, test_idxs)
-    
         train_dataloader = DataLoader(dataset=train_dataset, batch_size=batch_size, shuffle=False)
         test_dataloader = DataLoader(dataset=test_dataset, batch_size=batch_size, shuffle=False)
     

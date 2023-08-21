@@ -7,7 +7,7 @@ import torch
 from argparse import ArgumentParser
 
 # Local imports
-from utils import get_dataloaders, get_dataloaders_unshuffled
+from utils import get_dataloaders
 from models import get_CL_model, train, get_reg_model, train_reg
 
 
@@ -51,7 +51,7 @@ if __name__ == '__main__':
     for roi in all_rois:
         
         # Get dataloaders
-        train_dataloader, test_dataloader, train_size, test_size, num_voxels = get_dataloaders_unshuffled(project_dir, device, subj_num, hemisphere, roi, batch_size)
+        train_dataloader, test_dataloader, train_size, test_size, num_voxels = get_dataloaders(project_dir, device, subj_num, hemisphere, roi, batch_size)
         # Handle empty ROIs
         if (num_voxels==0):
             print(roi + " is empty")
