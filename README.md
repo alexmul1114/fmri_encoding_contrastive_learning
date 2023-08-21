@@ -14,5 +14,9 @@ For all runable scripts, options are specified at the begining of the file.
 **cl_model_training.py, cl_model_training_all_rois.py, reg_model_training.py, reg_model_training_all_rois.py** - scripts that can be run from the command line to train CL or regression models for each a single ROI (model_training files) or all the ROIs in a hemisphere for the specified subject (all_rois files). <br>
 **generate_results.py** - scripts that can be run from the command line to generate results (single-subject, cross-subject, or image classification tasks) once models are trained
 
+## Directions
+1. Download the images and fMRI data from the Algonauts Project website: [http://algonauts.csail.mit.edu/challenge.html] (http://algonauts.csail.mit.edu/challenge.html). Put the fMRI data in a subfolder called training_fmri in the root project directory, and the images in a subfolder called training_images. Both of those folders should have one folder for each subject name Subjx. For the fMRI data, each subject folder should have two files: subjx_lh_training_fmri.npy and subjx_rh_training_fmri.npy. Each subject folder in the training_images directory should have all of the images for that subject.
+2. First, run the generate_voxel_roi_mappings.py script
+
 
 
