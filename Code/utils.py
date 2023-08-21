@@ -74,7 +74,7 @@ class algoDataSet(Dataset):
         fmri_path = data_dir + r"/training_fmri/Subj" + str(subj_num)
         imgs_path = data_dir + r"/training_images/Subj" + str(subj_num)
         roi_masks_path = data_dir + r"/roi_masks/Subj" + str(subj_num)
-        voxel_clusterings_path = data_dir + r"/voxel_clusterings/Subj" + str(subj_num)
+        #voxel_clusterings_path = data_dir + r"/voxel_clusterings/Subj" + str(subj_num)
         
         
         # Get roi masks
@@ -123,7 +123,7 @@ class algoDataSet(Dataset):
             del all_fmri
             self.fmri_data = torch.from_numpy(fmri_roi)
             
-
+        """
         # Get subset of voxels if clustering is selected
         if (voxel_subset==True):
             if (hemisphere=='left'):
@@ -134,7 +134,8 @@ class algoDataSet(Dataset):
                                                                  + "_rh_voxel_clusterings_dict.joblib"))
             voxel_clusterings = voxel_clusterings_dict[roi_name]
             voxel_cluster = voxel_clusterings[voxel_subset_num]
-            self.fmri_data = self.fmri_data[:, voxel_cluster].squeeze()
+            self.fmri_data = self.fmri_data[:, voxel_cluster].squeeze() 
+        """
 
 
     def __len__(self):
@@ -154,40 +155,7 @@ class algoDataSet(Dataset):
         return self.img_paths
     
 
-class algoDataSet_imgs_only(Dataset):
-    
 
-    def __init__(self, data_dir, device, subj_num):
-
-        self.device = device
-        
-        # Paths to data
-        imgs_path = data_dir + r"/testing_images/Subj" + str(subj_num)
-        
-        
-        
-        # Define image transform
-        self.transform = transforms.Compose([
-        transforms.Resize((224,224)), # resize the images to 224x24 pixels
-        transforms.ToTensor(), # convert the images to a PyTorch tensor
-        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]) # normalize the images color channels
-                ])
-        # Get image paths
-        self.img_paths = np.array(sorted(list(Path(imgs_path).iterdir())))
-        
-
-    def __len__(self):
-        return len(self.img_paths)
-
-    def __getitem__(self, idx):
-        # Load the image
-        img_path = self.img_paths[idx]
-        img = Image.open(img_path).convert('RGB')
-        # Preprocess the image and send it to the chosen device ('cpu' or 'cuda')
-        img = self.transform(img).to(self.device)
-        return img, idx
-    
-    
 
 # Function to create dataloaders
 def get_dataloaders(data_dir, device, subj_num, hemisphere, roi_name, batch_size=1024, voxel_subset=False, voxel_subset_num=0, use_all_data=False):
