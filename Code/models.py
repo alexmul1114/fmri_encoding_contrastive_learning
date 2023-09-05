@@ -9,7 +9,8 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, Dataset, random_split
 
-import torchvision.models as models
+#import torchvision.models as models
+from torchvision.models import AlexNet_Weights
 from torchvision.models.feature_extraction import create_feature_extractor
 
 from torchmetrics.functional import pairwise_cosine_similarity
@@ -37,7 +38,8 @@ class CLR_model(torch.nn.Module):
         super(CLR_model, self).__init__()
 
         # Alexnet encoding layers for images
-        self.alex = models.alexnet(weights='DEFAULT')
+        self.alex = torch.hub.load('pytorch/vision:v0.10.0', 'alexnet', weights=AlexNet_Weights.IMAGENET1K_V1)
+        #self.alex = models.alexnet(weights='DEFAULT')
         
         # Freeze alexnet layers if selected
         if (alex_frozen):
@@ -81,7 +83,6 @@ class CLR_model(torch.nn.Module):
     
     
 # Helper functions for traning
-
 def train_one_step(model, data, optimizer, temp, cross_subj, device=None):
     optimizer.zero_grad()
     # Get output of projection head
