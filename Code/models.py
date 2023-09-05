@@ -19,8 +19,6 @@ import torchextractor as tx
 from tqdm import tqdm
 
 
-
-
 # Define CL loss function
 def cl_loss(z_f, z_i, temp):
     # Shape of z_f and z_i is (batch_size x dim_z)
@@ -31,9 +29,7 @@ def cl_loss(z_f, z_i, temp):
     loss = -torch.log(positive_sims / negative_sims).mean()
     return loss
 
-
 # Define CL model
-
 class CLR_model(torch.nn.Module):
 
     def __init__(self, num_voxels, h_dim, z_dim, alex_frozen=False):
@@ -41,7 +37,6 @@ class CLR_model(torch.nn.Module):
         super(CLR_model, self).__init__()
 
         # Alexnet encoding layers for images
-        
         self.alex = models.alexnet(weights='DEFAULT')
         
         # Freeze alexnet layers if selected
