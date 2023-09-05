@@ -63,11 +63,11 @@ def get_roi_mapping_files(path_to_masks):
 
 
 
+# Function to define fmri and images dataset
 class algoDataSet(Dataset):
     
-
-    def __init__(self, data_dir, device, subj_num, hemisphere, roi_name, voxel_subset=False, voxel_subset_num=0):
-
+    def __init__(self, data_dir, device, subj_num, hemisphere, roi_name):
+        
         self.device = device
         
         # Paths to data
@@ -75,7 +75,6 @@ class algoDataSet(Dataset):
         imgs_path = data_dir + r"/training_images/Subj" + str(subj_num)
         roi_masks_path = data_dir + r"/roi_masks/Subj" + str(subj_num)
         #voxel_clusterings_path = data_dir + r"/voxel_clusterings/Subj" + str(subj_num)
-        
         
         # Get roi masks
         lh_challenge_rois, rh_challenge_rois, roi_names, roi_name_maps = get_roi_mapping_files(roi_masks_path)
@@ -90,17 +89,16 @@ class algoDataSet(Dataset):
         transforms.ToTensor(), # convert the images to a PyTorch tensor
         transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]) # normalize the images color channels
                 ])
+        
         # Get image paths
         self.img_paths = np.array(sorted(list(Path(imgs_path).iterdir())))
-        
-
+    
         # Get all fmri data
         if (hemisphere == 'left'):
             all_fmri = np.load(os.path.join(fmri_path, 'subj' + str(subj_num) + '_lh_training_fmri.npy'))
         elif (hemisphere == 'right'):
             all_fmri = np.load(os.path.join(fmri_path, 'subj' + str(subj_num) + '_rh_training_fmri.npy'))
                         
-                
         if (roi_name == "all"):
             self.fmri_data = torch.from_numpy(all_fmri)
             del all_fmri
@@ -156,15 +154,16 @@ class algoDataSet(Dataset):
     
 
 
-
 # Function to create dataloaders
-def get_dataloaders(data_dir, device, subj_num, hemisphere, roi_name, batch_size=1024, voxel_subset=False, voxel_subset_num=0, use_all_data=False):
+def get_dataloaders(data_dir, device, subj_num, hemisphere, roi_name, batch_size=1024, use_all_data=False):
 
-    generator1 = torch.Generator().manual_seed(0)
-    if (voxel_subset==False):
-        dataset = algoDataSet(data_dir, device, subj_num, hemisphere, roi_name)
-    else:
-        dataset = algoDataSet(data_dir, device, subj_num, hemisphere, roi_name, True, voxel_subset_num)
+    # Seed generator
+    torch.manual_seed(0)
+    #generator1 = torch.Generator().manual_seed(0)
+    
+    # Create dataset for fmri and image data
+    dataset = algoDataSet(data_dir, device, subj_num, hemisphere, roi_name)
+
     # Make sure ROI is not empty
     num_voxels = len(dataset[0][0])
     if (num_voxels==0):
@@ -178,14 +177,15 @@ def get_dataloaders(data_dir, device, subj_num, hemisphere, roi_name, batch_size
         train_dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False)
         return train_dataloader, train_size, num_voxels
     else:
-        train_size = int(0.85 * len(dataset))
-        test_size = len(dataset) - train_size
-        train_dataset, test_dataset = torch.utils.data.random_split(dataset, [train_size, test_size])
-        train_dataloader = DataLoader(dataset=train_dataset, batch_size=batch_size, shuffle=False)
-        test_dataloader = DataLoader(dataset=test_dataset, batch_size=batch_size, shuffle=False)
+        train_size = int(0.75 * len(dataset))
+        val_size = int(0.1 * len(dataset))
+        test_size = int(0.15 * len(dataset))
+        train_dataset, val_dataset, test_dataset = torch.utils.data.random_split(dataset, [train_size, val_size, test_size])
+        train_dataloader = DataLoader(dataset=train_dataset, batch_size=batch_size, shuffle=True)
+        val_dataloader = DataLoader(dataset=val_dataset, batch_siz=batch_size, shuffle=True)
+        test_dataloader = DataLoader(dataset=test_dataset, batch_size=batch_size, shuffle=True)
     
-    return train_dataloader, test_dataloader, train_size, test_size, num_voxels
-
+    return train_dataloader, val_dataloader, test_dataloader, train_size, val_size, test_size, num_voxels
 
 
 # Function to get image-only dataloaders for test predictions
@@ -220,7 +220,6 @@ def get_dataloaders_with_img_paths(data_dir, device, subj_num, hemisphere, roi, 
     test_img_paths = img_paths[test_idxs]
     
     return train_dataloader, test_dataloader, train_size, test_size, num_voxels, train_img_paths, test_img_paths
-
 
 
 # Function to create a list of length num_voxels, where each entry is a list containing the ROI(s) (may be none, 1, or multiple) that the voxel is in
@@ -265,9 +264,9 @@ def get_voxel_roi_mappings(data_dir, subj_num, hemisphere, num_voxels):
                 rois.append(roi_name)
         voxel_roi_lists.append(rois)
     return voxel_roi_lists
-        
-        
-# Function to return all fmri data given a dataloader
+    
+            
+# Function to return all fmri data as np array given a dataloader
 def get_fmri_from_dataloader(dataloader, num_images, num_voxels):
     fmri = np.zeros((num_images, num_voxels))
     for batch_index, data in enumerate(dataloader):
@@ -283,8 +282,6 @@ def get_fmri_from_dataloader(dataloader, num_images, num_voxels):
         fmri[low_idx:high_idx] = fmri_batch.cpu().numpy()
         del fmri_batch, idxs
     return fmri
-    
-
 
 
 def get_linear_models(train_dataloader, cl_model, feature_extractor, num_images, num_voxels, alex_dim, h_dim, 
@@ -293,7 +290,7 @@ def get_linear_models(train_dataloader, cl_model, feature_extractor, num_images,
     train_fmri, train_img_h, train_img_features, pca = get_data_for_residual_model(train_dataloader, cl_model, feature_extractor, 
                                                                                    num_images, num_voxels, num_pca_comps, alex_dim, h_dim)
     
-    # Get training similarities (note that diagonal is set to 0s so dont have to worry about same-image pairs returning highest similarity
+    # Get training similarities (note that diagonal is set to 0s so dont have to worry about same-image pairs returning highest similarity)
     train_sims = pairwise_cosine_similarity(train_img_h)
     
     # Get similarity-based predicted responses for training images
@@ -410,7 +407,6 @@ def evaluate_linear_models(resid_model, ctrl_model, test_dataloader, train_fmri,
 
 # Function to return fmri data, img_h, pca fit to training images
 def get_train_data_for_prediction(device, dataloader, cl_model, feature_extractor, num_images, num_voxels, h_dim, alex_dim):
-    
     
     fmri = torch.zeros((num_images, num_voxels))
     img_h = torch.zeros((num_images, h_dim))
