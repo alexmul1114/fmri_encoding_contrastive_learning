@@ -48,14 +48,15 @@ if __name__ == '__main__':
     if (num_voxels==0):
         print("Empty ROI")
         sys.exit()
-    print(num_voxels)
+    #print(num_voxels)
     
     # Get model, optimizer, and scheduler
     model, optimizer, scheduler = get_CL_model(num_voxels, device)
     
     # Train model
-    print("Training model...")
-    trained_model = train(model, device, train_dataloader, test_dataloader, optimizer, scheduler, epochs, temp=0.3)
+    print("Training cl model for subject " + str(subj_num) + " " + str(hemisphere) + " hemisphere - " + roi)
+    trained_model, test_losses = train(model, device, train_dataloader, test_dataloader, optimizer, scheduler, epochs, temp=0.3)
+    #print(val_losses)
     
     # Save model in models directory
     save_dir = project_dir + r"/cl_models/Subj" + str(subj_num) 

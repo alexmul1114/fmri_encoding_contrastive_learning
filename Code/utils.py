@@ -2,6 +2,8 @@
 import os
 os.environ["OMP_NUM_THREADS"] = '1'
 
+import random
+
 import numpy as np
 from pathlib import Path
 from PIL import Image
@@ -155,7 +157,7 @@ class algoDataSet(Dataset):
 
 
 # Function to create dataloaders
-def get_dataloaders(data_dir, device, subj_num, hemisphere, roi_name, batch_size=1024, use_all_data=False):
+def get_dataloaders(data_dir, device, subj_num, hemisphere, roi_name, batch_size=1024, use_all_data=False, shuffle=True):
 
     # Seed generator
     torch.manual_seed(0)
@@ -171,21 +173,64 @@ def get_dataloaders(data_dir, device, subj_num, hemisphere, roi_name, batch_size
         if (use_all_data):
             return 0,0,0
         else:
-            return 0,0,0,0, num_voxels
+            return 0,0,0,0,num_voxels
     if (use_all_data):
         train_size = len(dataset)
-        train_dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False)
+        train_dataloader = DataLoader(dataset, batch_size=batch_size)
         return train_dataloader, train_size, num_voxels
     else:
+        train_size = int(0.85 * len(dataset))
+        test_size = len(dataset) - train_size
+        train_dataset, test_dataset = torch.utils.data.random_split(dataset, [train_size, test_size])
+        train_dataloader = DataLoader(dataset=train_dataset, batch_size=batch_size, shuffle=shuffle)
+        test_dataloader = DataLoader(dataset=test_dataset, batch_size=batch_size, shuffle=shuffle)
+    
+    return train_dataloader, test_dataloader, train_size, test_size, num_voxels
+
+
+
+# Function to create dataloaders for 5-fold cross validation (splitting training set into train/val)
+# Fold number can be 0,1,2,3,4
+def get_dataloaders_cv(data_dir, device, subj_num, hemisphere, roi_name, batch_size=1024, fold_num=0):
+
+    # Seed generator
+    torch.manual_seed(0) 
+  
+    # Create dataset for fmri and image data
+    dataset = algoDataSet(data_dir, device, subj_num, hemisphere, roi_name)
+
+    # Make sure ROI is not empty
+    num_voxels = len(dataset[0][0])
+    if (num_voxels==0):
+        return 0,0,0,0,num_voxels
+    
+    else:
+        
         train_size = int(0.75 * len(dataset))
         val_size = int(0.1 * len(dataset))
-        test_size = int(0.15 * len(dataset))
-        train_dataset, val_dataset, test_dataset = torch.utils.data.random_split(dataset, [train_size, val_size, test_size])
-        train_dataloader = DataLoader(dataset=train_dataset, batch_size=batch_size, shuffle=True)
-        val_dataloader = DataLoader(dataset=val_dataset, batch_siz=batch_size, shuffle=True)
-        test_dataloader = DataLoader(dataset=test_dataset, batch_size=batch_size, shuffle=True)
+        test_size = len(dataset) - (train_size + val_size)
+        train_dataset, val_dataset, _ = torch.utils.data.random_split(dataset, [train_size, val_size, test_size])
+        
+        k_fold_cv_dataset = torch.utils.data.ConcatDataset([train_dataset, val_dataset])
+        val_size = int(0.2 * len(k_fold_cv_dataset))
+        low_val_idx = fold_num * val_size
+        high_val_idx = low_val_idx + val_size
+        
+        val_idxs = [i for i in range(low_val_idx, high_val_idx)]
+        dummy_arr = np.ones(len(k_fold_cv_dataset))
+        dummy_arr[val_idxs] = 0
+        train_idxs = np.argwhere(dummy_arr != 0).squeeze()
+        
+        train_dataset = torch.utils.data.Subset(k_fold_cv_dataset, train_idxs)
+        val_dataset = torch.utils.data.Subset(k_fold_cv_dataset, val_idxs)
+        
+        train_size = len(train_dataset)
+        val_size = len(val_dataset)
+        
+        train_dataloader = DataLoader(dataset=train_dataset, batch_size=batch_size, shuffle=False)
+        val_dataloader = DataLoader(dataset=val_dataset, batch_size=batch_size, shuffle=False)
     
-    return train_dataloader, val_dataloader, test_dataloader, train_size, val_size, test_size, num_voxels
+    return train_dataloader, val_dataloader, train_size, val_size, num_voxels
 
 
 # Function to get image-only dataloaders for test predictions
@@ -265,6 +310,44 @@ def get_voxel_roi_mappings(data_dir, subj_num, hemisphere, num_voxels):
         voxel_roi_lists.append(rois)
     return voxel_roi_lists
     
+    
+# Function to return n random ROIs (subject, hemisphere, and ROI), for use in hyperparameter search, saves a txt file listing them (make sure ROIs selected have >20 voxels)
+def get_n_random_rois(project_dir, n):
+    
+    os.chdir(project_dir)
+    
+    subjs = list(range(1,9))
+    all_rois = ["V1v", "V1d", "V2v", "V2d", "V3v", "V3d", "hV4", "EBA", "FBA-1", "FBA-2", "mTL-bodies", "OFA", "FFA-1",
+            "FFA-2", "mTL-faces", "aTL-faces", "OPA",
+              "PPA", "RSC", "OWFA", "VWFA-1", "VWFA-2", "mfs-words", "mTL-words",
+           "early", "midventral", "midlateral", "midparietal", "ventral", "lateral", "parietal"]
+    hemispheres = ['l', 'r']
+    # Keep track of used roi keys(format="x_h_roi", where x is subj idx, h is hemisphere (left or right), and roi is roi name)
+    used_roi_keys = set()
+    for i in range(n):
+        roi = all_rois[random.randint(0, len(all_rois)-1)]
+        subj = random.randint(1, 8)
+        hemisphere = 'left' if random.randint(0,1)==0 else 'right'
+        # Get number of voxels in this roi
+        _,_,_,_,_,_, num_voxels = get_dataloaders(project_dir, 'cpu', subj, hemisphere, roi, batch_size=1024)
+        roi_key = str(subj) + "_" + hemisphere + "_" + roi
+        while roi_key in used_roi_keys and num_voxels > 20:
+            roi = all_rois[random.randint(0, len(all_rois)-1)]
+            subj = random.randint(1, 8)
+            hemisphere = 'left' if random.randint(0,1)==0 else 'right'
+            # Get number of voxels in this roi
+            _,_,_,_,_,_, num_voxels = get_dataloaders(project_dir, 'cpu', subj, hemisphere, roi, batch_size=1024)
+            roi_key = str(subj) + "_" + hemisphere + "_" + roi
+        used_roi_keys.add(roi_key)
+    
+    # Write rois to txt file
+    f = open('random_rois.txt', 'w+')
+    for random_roi_keys in used_roi_keys:
+        f.write(random_roi_keys + '\n')
+    f.close()  
+    
+        
+        
             
 # Function to return all fmri data as np array given a dataloader
 def get_fmri_from_dataloader(dataloader, num_images, num_voxels):
@@ -550,7 +633,7 @@ def fit_pca(feature_extractor, dataloader, num_images, alex_out_size, batch_size
 
     print("Fitting PCA...")
     features = np.zeros((num_images, alex_out_size))
-    for batch_index, data in tqdm(enumerate(dataloader), total=len(dataloader)):
+    for batch_index, data in enumerate(dataloader):
         batch_size = data[0].shape[0]
         if (batch_index==0):
             low_idx = 0
@@ -579,11 +662,35 @@ def fit_pca(feature_extractor, dataloader, num_images, alex_out_size, batch_size
 
 
 # Given already fit PCA, extract image features
+def extract_pca_features(feature_extractor, dataloader, pca, num_images, batch_size=1024):
+
+    print("Extracting PCA Features...")
+    features = np.zeros((num_images, 1000))
+    for batch_index, data in enumerate(dataloader):
+        if (batch_index==0):
+            low_idx = 0
+            high_idx = batch_size
+        else:
+            low_idx = high_idx
+            high_idx += batch_size
+        # Extract features
+        ft = feature_extractor(data[1])
+        # Flatten the features
+        ft = torch.hstack([torch.flatten(l, start_dim=1) for l in ft.values()])
+        # Apply PCA transform
+        ft = pca.transform(ft.cpu().detach().numpy())
+        features[low_idx:high_idx] = ft
+        del ft
+    return features
+
+
+"""
+# Given already fit PCA, extract image features
 def extract_pca_features(feature_extractor, pca, num_images, dataloader, is_img_dataloader, batch_size, is_cl_feature_extractor=False, num_voxels=0, device=None):
 
     print("Extracting PCA Features...")
     features = np.zeros((num_images, 1000))
-    for batch_index, data in tqdm(enumerate(dataloader), total=len(dataloader)):
+    for batch_index, data in enumerate(dataloader):
         if (batch_index==0):
             low_idx = 0
             high_idx = batch_size
@@ -616,3 +723,4 @@ def extract_pca_features(feature_extractor, pca, num_images, dataloader, is_img_
         del ft
         
     return features
+"""

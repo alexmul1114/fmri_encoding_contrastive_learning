@@ -55,11 +55,12 @@ if __name__ == '__main__':
         print("ROI is too large to train model")
     else:
         # Get model, optimizer, and scheduler
-        model, optimizer = get_reg_model(num_voxels, device, lr=0.000025)
+        model, optimizer = get_reg_model(num_voxels, device)
 
         # Train model
-        print("Training regression model for " + roi + ":")
-        trained_model = train_reg(model, device, train_dataloader, test_dataloader, optimizer, epochs)
+        print("Training reg model for subject " + str(subj_num) + " " + str(hemisphere) + " hemisphere - " + roi)
+        #print("Training regression model for " + roi + ":")
+        trained_model  = train_reg(model, device, train_dataloader, test_dataloader, optimizer, epochs)
 
         # Save model in models directory
         hemisphere_abbr = 'l' if hemisphere=='left' else 'r'

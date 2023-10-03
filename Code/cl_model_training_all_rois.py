@@ -53,7 +53,6 @@ if __name__ == '__main__':
         # Get dataloaders
         train_dataloader, test_dataloader, train_size, test_size, num_voxels = get_dataloaders(project_dir, device, subj_num, hemisphere, roi, batch_size)
         # Handle empty ROIs
-        #print(num_voxels)
         if (num_voxels==0):
             print(roi + " is empty")
         elif (num_voxels > 4000):

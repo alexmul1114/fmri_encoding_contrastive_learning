@@ -12,6 +12,7 @@ import torch.nn as nn
 from torch.utils.data import DataLoader, Dataset, random_split
 from torchvision.models.feature_extraction import create_feature_extractor, get_graph_node_names
 from torchvision import transforms
+from torchvision.models import AlexNet_Weights
 from sklearn.decomposition import IncrementalPCA
 from sklearn.linear_model import LinearRegression
 from scipy.stats import pearsonr as corr
@@ -44,8 +45,8 @@ from sklearn.manifold import TSNE
 
 
 # Local imports
-from utils import get_dataloaders, get_dataloaders_unshuffled, fit_pca, extract_pca_features, get_fmri_from_dataloader, get_dataloaders_with_img_paths
-from models import CLR_model
+from utils import get_dataloaders, fit_pca, extract_pca_features, get_fmri_from_dataloader, get_dataloaders_with_img_paths, get_dataloaders_cv
+from algonauts_models import CLR_model
 
 
 
@@ -57,8 +58,8 @@ def get_results_single_subj(project_dir, device, subj_num, hemisphere, roi):
     hemisphere_abbr = 'l' if hemisphere=='left' else 'r'
     
     # Get dataloaders
-    train_dataloader, test_dataloader, train_size, test_size, num_voxels = get_dataloaders_unshuffled(project_dir, 
-                                                                device, subj_num, hemisphere, roi, 1024)
+    train_dataloader, test_dataloader, train_size, test_size, num_voxels = get_dataloaders(project_dir, 
+                                                                device, subj_num, hemisphere, roi, 1024, shuffle=False)
     if (num_voxels==0):
         print("Empty ROI")
         return -1,-1,-1,-1,-1,-1,-1
@@ -66,22 +67,23 @@ def get_results_single_subj(project_dir, device, subj_num, hemisphere, roi):
         print("Too few voxels")
         return -1,-1,-1,-1,-1,-1,-1
     
-    # Get training and testing fmri and numpy arrays
+    # Get training and testing fmri as numpy arrays
     train_fmri = get_fmri_from_dataloader(train_dataloader, train_size, num_voxels)
     test_fmri = get_fmri_from_dataloader(test_dataloader, test_size, num_voxels)
     
     
     # Get control linear encoding model predictions:
     # Load best alexnet layer for control linear encoding model, create feature extractor
-    print("Getting control linear encoding model predictions...")
-    best_alex_out_layer_path = project_dir + r"/best_alex_out_layers/Subj" + str(subj_num) + r"/subj" + str(subj_num) + "_" + hemisphere_abbr + "h_best_alex_layer_dict.joblib"
+    #best_alex_out_layer_path = project_dir + r"/best_alex_out_layers/Subj" + str(subj_num) + r"/subj" + str(subj_num) + "_" + hemisphere_abbr + "h_best_alex_layer_dict.joblib"
+    best_alex_out_layer_path = project_dir + r"/best_alex_out_layers/best_alex_layer_dict.joblib"
     best_alex_out_layer_dict = joblib.load(best_alex_out_layer_path)
     alex_out_layer_dims = {"features.2":46656, "features.5":32448, "features.7":64896, "features.9":43264,
                            "features.12":9216, "classifier.2":4096, "classifier.5":4096, "classifier.6":1000}
-    best_alex_layer = best_alex_out_layer_dict[roi]
+    roi_out_name = hemisphere_abbr + "h_" + roi
+    best_alex_layer, best_untuned_alpha = best_alex_out_layer_dict[roi_out_name]
     alex_out_size = alex_out_layer_dims[best_alex_layer]
     
-    alex = torch.hub.load('pytorch/vision:v0.10.0', 'alexnet')
+    alex = torch.hub.load('pytorch/vision:v0.10.0', 'alexnet', weights=AlexNet_Weights.IMAGENET1K_V1)
     alex.to(device) # send the model to the chosen device 
     alex.eval() # set the model to evaluation mode
     feature_extractor = create_feature_extractor(alex, return_nodes=[best_alex_layer])
@@ -91,14 +93,12 @@ def get_results_single_subj(project_dir, device, subj_num, hemisphere, roi):
     pca = fit_pca(feature_extractor, train_dataloader, train_size, alex_out_size, batch_size=1024)
     
     # Get training and testing image pca features
-    train_pca_features = extract_pca_features(feature_extractor, pca, train_size, train_dataloader, 
-                                                    is_img_dataloader=False, batch_size=1024)
-    test_pca_features = extract_pca_features(feature_extractor, pca, test_size, test_dataloader, 
-                                                    is_img_dataloader=False, batch_size=1024)
+    
+    train_pca_features = extract_pca_features(feature_extractor, train_dataloader, pca, train_size, batch_size=1024)
+    test_pca_features = extract_pca_features(feature_extractor, test_dataloader, pca, test_size, batch_size=1024)
     
     # Fit control linear encoding model, get test predictions
-    #control_linear_model = LinearRegression().fit(train_pca_features, train_fmri)
-    control_linear_model = Ridge(alpha=1000).fit(train_pca_features, train_fmri)
+    control_linear_model = Ridge(alpha=best_untuned_alpha).fit(train_pca_features, train_fmri)
     
     ctrl_preds = control_linear_model.predict(test_pca_features)
 
@@ -117,7 +117,6 @@ def get_results_single_subj(project_dir, device, subj_num, hemisphere, roi):
     feature_extractor = tx.Extractor(cl_model, ["alex.classifier.6"]).to(device)
     del cl_model
     
-    # Get training and testing tuned alexnet features
     train_features = np.zeros((train_size, 1000))
     for batch_index, data in tqdm(enumerate(train_dataloader), total=len(train_dataloader)):
         batch_size = data[0].shape[0]
@@ -149,7 +148,7 @@ def get_results_single_subj(project_dir, device, subj_num, hemisphere, roi):
         ft = alex_out_dict['alex.classifier.6'].detach().cpu().numpy()
         test_features[low_idx:high_idx] = ft
         del ft
-
+        
     cl_encoding_model = Ridge(alpha=10000).fit(train_features, train_fmri)
     cl_preds = cl_encoding_model.predict(test_features)
     
@@ -180,10 +179,11 @@ def get_results_single_subj(project_dir, device, subj_num, hemisphere, roi):
             high_idx += batch_size
         # Extract features
         with torch.no_grad():
-            _, alex_out_dict = feature_extractor(data[1])
+                _, alex_out_dict = feature_extractor(data[1])
         ft = alex_out_dict['alex.classifier.6'].detach().cpu().numpy()
         train_features[low_idx:high_idx] = ft
         del ft
+
     test_features = np.zeros((test_size, 1000))
     for batch_index, data in tqdm(enumerate(test_dataloader), total=len(test_dataloader)):
         batch_size = data[0].shape[0]
@@ -200,7 +200,7 @@ def get_results_single_subj(project_dir, device, subj_num, hemisphere, roi):
         test_features[low_idx:high_idx] = ft
         del ft
         
-    reg_encoding_model = Ridge(alpha=10000).fit(train_features, train_fmri)
+    reg_encoding_model = Ridge(alpha=100).fit(train_features, train_fmri)
     reg_preds = reg_encoding_model.predict(test_features)
     
     del feature_extractor, train_features, test_features, reg_encoding_model
@@ -241,13 +241,13 @@ def get_results_single_subj(project_dir, device, subj_num, hemisphere, roi):
     return ctrl_avg, reg_avg, cl_avg, cl_ctrl_improved_percentage, cl_reg_improved_percentage, cl_vs_ctrl_voxel_differences, cl_vs_reg_voxel_differences
 
 
-
 def get_results_single_subj_all_rois(project_dir, device, subj_num, hemisphere, save=True, exclude_rois=None):
     
     all_rois = ["V1v", "V1d", "V2v", "V2d", "V3v", "V3d", "hV4", "EBA", "FBA-1", "FBA-2",
               "mTL-bodies", "OFA", "FFA-1", "FFA-2", "mTL-faces", "aTL-faces", "OPA",
          "PPA", "RSC", "OWFA", "VWFA-1", "VWFA-2", "mfs-words", "mTL-words",
        "early", "midventral", "midlateral", "midparietal", "ventral", "lateral", "parietal"]
+
     
     hemisphere_abbr = 'l' if hemisphere=='left' else 'r'
 
@@ -320,13 +320,13 @@ def get_results_cross_subj(project_dir, device, hemisphere, roi, save=True, num_
         best_alex_layer = best_alex_out_layer_dict[roi]
         alex_out_size = alex_out_layer_dims[best_alex_layer]
 
-        alex = torch.hub.load('pytorch/vision:v0.10.0', 'alexnet')
+        alex = torch.hub.load('pytorch/vision:v0.10.0', 'alexnet', weights=AlexNet_Weights.IMAGENET1K_V1)
         alex.to(device) 
         alex.eval() 
         feature_extractor = create_feature_extractor(alex, return_nodes=[best_alex_layer])
         del alex
         
-        train_dataloader, test_dataloader, train_size, test_size, num_voxels = get_dataloaders_unshuffled(project_dir, device, subj_num, hemisphere, roi, 1024)
+        train_dataloader, test_dataloader, train_size, test_size, num_voxels = get_dataloaders(project_dir, device, subj_num, hemisphere, roi, 1024, shuffle=False)
         
         #Fit PCA using feature extractor
         pca = fit_pca(feature_extractor, train_dataloader, train_size, alex_out_size, batch_size=1024)
@@ -372,7 +372,7 @@ def get_results_cross_subj(project_dir, device, hemisphere, roi, save=True, num_
         feature_extractor = tx.Extractor(model, ["alex.classifier.6"]).to(device)
         del model
         
-        train_dataloader, test_dataloader, train_size, test_size, num_voxels_model_subj = get_dataloaders_unshuffled(project_dir, device, model_subj, hemisphere, roi, 1024)
+        train_dataloader, test_dataloader, train_size, test_size, num_voxels_model_subj = get_dataloaders(project_dir, device, model_subj, hemisphere, roi, 1024, shuffle=False)
         
 
         for target_subj_idx in range(num_subjs):
@@ -380,7 +380,7 @@ def get_results_cross_subj(project_dir, device, hemisphere, roi, save=True, num_
             target_subj = target_subj_idx + 1
             
             # Get dataloaders for target subj
-            train_dataloader, test_dataloader, train_size, test_size, num_voxels_target_subj = get_dataloaders_unshuffled(project_dir, device, target_subj, hemisphere, roi, 1024)
+            train_dataloader, test_dataloader, train_size, test_size, num_voxels_target_subj = get_dataloaders(project_dir, device, target_subj, hemisphere, roi, 1024, shuffle=False)
             
             if (num_voxels_target_subj==0):
                 results_mat[model_subj_idx, target_subj_idx] = -1
@@ -524,7 +524,6 @@ def image_classification_results(project_dir, subj_num, hemisphere, rois, device
         dataset = torchvision.datasets.SUN397(root=image_dir, transform=alex_transform, download=True)
     elif (dataset_name=='imagenet'):
         image_dir = project_dir + "/imagenet"
-        #dataset = torchvision.datasets.ImageNet(root=image_dir, split='val', transform=alex_transform)
         dataset = torchvision.datasets.ImageNet(root=image_dir, split='val', transform=alex_transform)
         
     total_num_images = len(dataset)
@@ -618,7 +617,7 @@ def image_classification_results(project_dir, subj_num, hemisphere, rois, device
     for roi in rois:
         
         # Get number of voxels for this model
-        _, _, _, _, num_voxels = get_dataloaders_unshuffled(project_dir, device, subj_num, hemisphere, roi, 1024)
+        _, _, _, _, num_voxels = get_dataloaders(project_dir, device, subj_num, hemisphere, roi, 1024, shuffle=False)
         
         if (num_voxels < 20):
             print(roi, "is too small or empty")
@@ -633,9 +632,9 @@ def image_classification_results(project_dir, subj_num, hemisphere, rois, device
                 model_path = model_dir + r"/subj" + str(subj_num) + "_" + hemisphere_abbr + "h_" + roi + "_reg_model_e75.pt" 
                 model = torch.load(model_path).to(device)
 
-            feature_extractor = tx.Extractor(model, ["alex.classifier.6"]).to(device)
+            feature_extractor = tx.Extractor(model, ["alex.classifier.5"]).to(device)
 
-            train_features_tuned = np.zeros((train_size, 1000))
+            train_features_tuned = np.zeros((train_size, 4096))
             train_labels = np.zeros(train_size)
             for batch_index, data in tqdm(enumerate(train_dataloader), total=len(train_dataloader)):
                 batch_size = data[0].shape[0]
@@ -652,12 +651,12 @@ def image_classification_results(project_dir, subj_num, hemisphere, rois, device
                         _, alex_out_dict = feature_extractor(fmri_dummy, data[0].to(device))
                     elif (tuning_method=='reg'):
                         _, alex_out_dict = feature_extractor(data[0].to(device))
-                ft = alex_out_dict['alex.classifier.6'].detach().cpu().numpy()
+                ft = alex_out_dict['alex.classifier.5'].detach().cpu().numpy()
                 train_features_tuned[low_idx:high_idx] = ft
                 train_labels[low_idx:high_idx] = data[1]
                 del ft
 
-            test_features_tuned = np.zeros((test_size, 1000))
+            test_features_tuned = np.zeros((test_size, 4096))
             test_labels = np.zeros(test_size)
             for batch_index, data in tqdm(enumerate(test_dataloader), total=len(test_dataloader)):
                 batch_size = data[0].shape[0]
@@ -674,7 +673,7 @@ def image_classification_results(project_dir, subj_num, hemisphere, rois, device
                         _, alex_out_dict = feature_extractor(fmri_dummy, data[0].to(device))
                     elif (tuning_method=='reg'):
                         _, alex_out_dict = feature_extractor(data[0].to(device))
-                ft = alex_out_dict['alex.classifier.6'].detach().cpu().numpy()
+                ft = alex_out_dict['alex.classifier.5'].detach().cpu().numpy()
                 test_features_tuned[low_idx:high_idx] = ft
                 test_labels[low_idx:high_idx] = data[1]
                 del ft
@@ -704,3 +703,130 @@ def image_classification_results(project_dir, subj_num, hemisphere, rois, device
                     results[roi] = acc
                     joblib.dump(results, save_path)
                     
+                    
+# Choose best alpha for ridge regression via 5-fold cross validation (CL or reg)
+def find_alpha(data_dir, device, subj_num, hemisphere, roi_name, model_type="cl"):
+    print(roi_name) 
+    alphas = list(np.logspace(-1, 6, num=8))
+    results_dict = dict(zip(alphas, [0]*len(alphas)))
+    total_acc_dict = dict(zip(alphas, [0]*len(alphas)))
+    
+    hemisphere_abbr = 'l' if hemisphere=='left' else 'r'
+    
+    for fold_num in range(5):
+        
+        #print("Fold " + str(fold_num+1) + ":")
+        
+        # Get train and val dataloaders for this fold number
+        train_dataloader, val_dataloader, train_size, val_size, num_voxels = get_dataloaders_cv(data_dir, device, subj_num, hemisphere, roi_name, batch_size=1024, fold_num=fold_num)
+        
+        # Load model
+        if (model_type == "cl"):
+            model_dir = data_dir + r"/cl_models/Subj" + str(subj_num)
+            model_path = model_dir + r"/subj" + str(subj_num) + "_" + hemisphere_abbr + "h_" + roi_name + "_model_e30.pt" 
+            model = torch.load(model_path).to(device)
+            # Create feature extractor from CL model
+            feature_extractor = tx.Extractor(model, ["alex.classifier.6"]).to(device)
+            del model
+        elif (model_type == "reg"):
+            model_dir = data_dir + r"/baseline_models/nn_reg/Subj" + str(subj_num)
+            model_path = model_dir + r"/subj" + str(subj_num) + "_" + hemisphere_abbr + "h_" + roi_name + "_reg_model_e75.pt"
+            # Create feature extractor from reg model
+            feature_extractor = tx.Extractor(model, ["alex.classifier.6"]).to(device)
+            del model
+        elif (model_type == "untuned"):
+            # Load best alexnet layer for control linear encoding model, create feature extractor
+            best_alex_out_layer_path = data_dir + r"/best_alex_out_layers/Subj" + str(subj_num) + r"/subj" + str(subj_num) + "_" + hemisphere_abbr + "h_best_alex_layer_dict.joblib"
+            best_alex_out_layer_dict = joblib.load(best_alex_out_layer_path)
+            alex_out_layer_dims = {"features.2":46656, "features.5":32448, "features.7":64896, "features.9":43264,
+                                   "features.12":9216, "classifier.2":4096, "classifier.5":4096, "classifier.6":1000}
+            best_alex_layer = best_alex_out_layer_dict[roi_name]
+            alex_out_size = alex_out_layer_dims[best_alex_layer]
+
+            alex = torch.hub.load('pytorch/vision:v0.10.0', 'alexnet', weights=AlexNet_Weights.IMAGENET1K_V1)
+            model.to(device) # send the model to the chosen device 
+            model.eval() # set the model to evaluation mode
+            feature_extractor = create_feature_extractor(model, return_nodes=[best_alex_layer])
+            del model
+
+            #Fit PCA using feature extractor
+            pca = fit_pca(feature_extractor, train_dataloader, train_size, alex_out_size, batch_size=1024)
+
+            # Get training and testing image pca features
+            train_features = extract_pca_features(feature_extractor, pca, train_size, train_dataloader, 
+                                                            is_img_dataloader=False, batch_size=1024)
+            val_features = extract_pca_features(feature_extractor, pca, val_size, val_dataloader, 
+                                                            is_img_dataloader=False, batch_size=1024)
+
+    
+        #print("Extracting image activations...")
+        # Get training and tvalidation tuned alexnet features
+        if (model_type != "untuned"):
+            train_features = np.zeros((train_size, 1000))
+            for batch_index, data in tqdm(enumerate(train_dataloader), total=len(train_dataloader)):
+                batch_size = data[0].shape[0]
+                if (batch_index==0):
+                    low_idx = 0
+                    high_idx = batch_size
+                else:
+                    low_idx = high_idx
+                    high_idx += batch_size
+                # Extract features
+                with torch.no_grad():
+                    if (model_type=='cl'):
+                        _, alex_out_dict = feature_extractor(data[0], data[1])
+                    elif (model_type=='reg'):
+                        _, alex_out_dict = feature_extractor(data[1])
+                ft = alex_out_dict['alex.classifier.6'].detach().cpu().numpy()
+                train_features[low_idx:high_idx] = ft
+                del ft
+
+            val_features = np.zeros((val_size, 1000))
+            for batch_index, data in tqdm(enumerate(val_dataloader), total=len(val_dataloader)):
+                batch_size = data[0].shape[0]
+                if (batch_index==0):
+                    low_idx = 0
+                    high_idx = batch_size
+                else:
+                    low_idx = high_idx
+                    high_idx += batch_size
+                # Extract features
+                with torch.no_grad():
+                    if (model_type=='cl'):
+                        _, alex_out_dict = feature_extractor(data[0], data[1])
+                    elif (model_type=='reg'):
+                        _, alex_out_dict = feature_extractor(data[1])
+                ft = alex_out_dict['alex.classifier.6'].detach().cpu().numpy()
+                val_features[low_idx:high_idx] = ft
+                del ft
+        
+        #print("Extracting fmri data...")
+        train_fmri = get_fmri_from_dataloader(train_dataloader, train_size, num_voxels)
+        val_fmri = get_fmri_from_dataloader(val_dataloader, val_size, num_voxels)    
+        
+        # Try different alpha values for ridge regression
+        for alpha in alphas:
+
+            #print("Fitting regression model...")
+            encoding_model = Ridge(alpha=alpha).fit(train_features, train_fmri)
+            preds = encoding_model.predict(val_features)
+            
+            #print("Getting validation fMRI data...")
+            
+            # Compute mean correlations for all methods
+            corrs = np.zeros(num_voxels)
+            #print("Computing correlations...")
+            for v in tqdm(range(num_voxels)):
+                corrs[v] = corr(val_fmri[:, v], preds[:, v])[0]
+
+            avg_acc = corrs.mean()
+            total_acc_dict[alpha] = total_acc_dict[alpha] + avg_acc
+            results_dict[alpha] = total_acc_dict[alpha] / (fold_num + 1)
+
+            #print(roi_name + ", alpha = " + str(alpha) + " val acc: " + str(avg_acc))
+        
+    print(roi_name, results_dict)
+    
+    
+
+    
