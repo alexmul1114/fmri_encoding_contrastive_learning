@@ -38,11 +38,10 @@ if __name__ == '__main__':
     batch_size = args.batch_size
     epochs = args.epochs
     
-    all_rois = ["V1v", "V1d", "V2v", "V2d", "V3v", "V3d", "hV4", "EBA", "FBA-1",
-                "FBA-2", "mTL-bodies", "OFA", "FFA-1",
+    all_rois = ["V1v", "V1d", "V2v", "V2d", "V3v", "V3d", "hV4", "EBA", "FBA-1", "FBA-2", "mTL-bodies", "OFA", "FFA-1",
                    "FFA-2", "mTL-faces", "aTL-faces", "OPA",
             "PPA", "RSC", "OWFA", "VWFA-1", "VWFA-2", "mfs-words", "mTL-words", "early",
-            "midventral", "midlateral", "midparietal", "ventral", "lateral", "parietal"]
+            "midventral", "midlateral", "midparietal", "ventral", "lateral", "parietal"]  
 
     save_dir = project_dir + r"/cl_models/Subj" + str(subj_num) 
     os.chdir(save_dir)
@@ -59,20 +58,15 @@ if __name__ == '__main__':
             print("ROI is too large to train model")
         else:
             # Get model, optimizer, and scheduler
-            model, optimizer, scheduler = get_CL_model(num_voxels, device)
+            model, optimizer  = get_CL_model(num_voxels, device)
 
             # Train model
             print("Training model for " + roi + ":")
-            trained_model = train(model, device, train_dataloader, test_dataloader, optimizer, scheduler, epochs, temp=0.3)
+            trained_model = train(model, device, train_dataloader, optimizer, epochs, temp=0.3)
 
             # Save model in models directory
             hemisphere_abbr = 'l' if hemisphere=='left' else 'r'
             model_name = "subj" + str(subj_num) + "_" + hemisphere_abbr + "h_" + roi + "_model_e" + str(epochs) + ".pt"
-            torch.save(trained_model, model_name)
-            
-            del model, optimizer, scheduler, trained_model
-    
-    
-
-
-
+            torch.save(trained_model.state_dict(), model_name)
+        
+        del model, optimizer, trained_model

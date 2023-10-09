@@ -46,7 +46,8 @@ from sklearn.manifold import TSNE
 
 # Local imports
 from utils import get_dataloaders, fit_pca, extract_pca_features, get_fmri_from_dataloader, get_dataloaders_with_img_paths, get_dataloaders_cv
-from algonauts_models import CLR_model
+#from algonauts_models import CLR_model
+from models import CLR_model, fmri_reg
 
 
 
@@ -111,7 +112,13 @@ def get_results_single_subj(project_dir, device, subj_num, hemisphere, roi):
     print("Getting CL predictions...")
     cl_model_dir = project_dir + r"/cl_models/Subj" + str(subj_num)
     cl_model_path = cl_model_dir + r"/subj" + str(subj_num) + "_" + hemisphere_abbr + "h_" + roi + "_model_e30.pt" 
-    cl_model = torch.load(cl_model_path).to(device)
+    h_dim = int(num_voxels*0.8)
+    z_dim = int(num_voxels*0.2)
+    cl_model = CLR_model(num_voxels, h_dim, z_dim)
+    cl_model.load_state_dict(torch.load(cl_model_path)[0].state_dict())
+    cl_model.to(device)
+    cl_model.eval()
+    #cl_model = torch.load(cl_model_path).to(device)
     
     # Create feature extractor
     feature_extractor = tx.Extractor(cl_model, ["alex.classifier.6"]).to(device)
@@ -161,7 +168,11 @@ def get_results_single_subj(project_dir, device, subj_num, hemisphere, roi):
     print("Getting regression predictions...")
     reg_model_dir = project_dir + r"/baseline_models/nn_reg/Subj" + str(subj_num)
     reg_model_path = reg_model_dir + r"/subj" + str(subj_num) + "_" + hemisphere_abbr + "h_" + roi + "_reg_model_e75.pt" 
-    reg_model = torch.load(reg_model_path).to(device)
+    reg_model = fmri_reg(num_voxels)
+    reg_model.load_state_dict(torch.load(reg_model_path).state_dict())
+    reg_model.to(device)
+    reg_model.eval()
+    #reg_model = torch.load(reg_model_path).to(device)
     
     # Create feature extractor
     feature_extractor = tx.Extractor(reg_model, ["alex.classifier.6"]).to(device)

@@ -19,6 +19,8 @@ import torchextractor as tx
 
 from tqdm import tqdm
 
+import gc
+
 
 # Define CL loss function
 def cl_loss(z_f, z_i, temp):
@@ -83,18 +85,20 @@ class CLR_model(torch.nn.Module):
     
     
 # Helper functions for traning
-def train_one_step(model, data, optimizer, temp, cross_subj, device=None):
+def train_one_step(model, data, optimizer, temp):
+    
     optimizer.zero_grad()
-    # Get output of projection head
-    if (cross_subj):
-        fmri_z, img_z = model(data[0], data[1], device)
-    else:
-        fmri_z, img_z = model(data[0], data[1])
-    # Compute loss
-    loss = cl_loss(fmri_z, img_z, temp)
+    #with torch.cuda.amp.autocast():
+    fmri_z, img_z = model(data[0], data[1])
+    loss = cl_loss(fmri_z, img_z, temp) 
+           
     # Update weights
     loss.backward()
     optimizer.step()
+    
+    torch.cuda.empty_cache()
+    _ = gc.collect()
+
     return loss
 
 def val_one_step(model, data, temp, cross_subj=False, device=None):
@@ -107,11 +111,11 @@ def val_one_step(model, data, temp, cross_subj=False, device=None):
     loss = cl_loss(fmri_z, img_z, temp)
     return loss
 
-def train_one_epoch(model, device, dataloader, optimizer, scheduler, temp, cross_subj):
+def train_one_epoch(model, device, dataloader, optimizer, temp):
     model.train()
     total_loss = torch.tensor(0 ,dtype=torch.float64, device=device)
     for batch_index, data in enumerate(dataloader):
-        loss = train_one_step(model, data, optimizer, temp, cross_subj, device)
+        loss = train_one_step(model, data, optimizer, temp)
         total_loss += loss
     return total_loss
 
@@ -127,17 +131,19 @@ def val_loss(model, dataloader, temp, cross_subj, device=None):
 
 
 # Main training function
-def train(model, device, train_dataloader, test_dataloader, optimizer, scheduler, epochs, temp, cross_subj=False):
+def train(model, device, train_dataloader, optimizer, epochs, temp):
     epoch = 0
-    val_losses = []
+    #val_losses = []
+    # Gradient scaler    
+    scaler = torch.cuda.amp.GradScaler()
     for epoch in tqdm(range(epochs)):
-        total_train_loss = train_one_epoch(model, device, train_dataloader, optimizer, scheduler, temp, cross_subj)
-        total_val_loss = val_loss(model, test_dataloader, temp, cross_subj, device)
-        val_losses.append(total_val_loss)
-        scheduler.step(total_val_loss)
+        total_train_loss = train_one_epoch(model, device, train_dataloader, optimizer, temp)
+        #total_val_loss = val_loss(model, test_dataloader, temp, cross_subj, device)
+        #val_losses.append(total_val_loss)
+        #scheduler.step(total_val_loss)
         print("Epoch " + str(epoch) + " train loss: " + str(total_train_loss.item()))
-        print("Epoch " + str(epoch) + " val loss: " + str(total_val_loss.item()))
-    return model, val_losses
+        #print("Epoch " + str(epoch) + " val loss: " + str(total_val_loss.item()))
+    return model   #, val_losses
 
 
 # Function to get CL model, optimizer and scheduler
@@ -147,8 +153,8 @@ def get_CL_model(num_voxels, device, lr=0.0001, alex_frozen=False):
     model = CLR_model(num_voxels, h_dim, z_dim, alex_frozen)
     model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr)
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=3)
-    return model, optimizer, scheduler
+    #scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=3)
+    return model, optimizer
 
 
 
@@ -212,14 +218,14 @@ def val_loss_reg(model, device, dataloader, loss_func):
 
 
 # Main training function
-def train_reg(model, device, train_dataloader, val_dataloader, optimizer, epochs):
+def train_reg(model, device, train_dataloader, optimizer, epochs):
     epoch = 0
     loss_func = torch.nn.MSELoss()
     for epoch in tqdm(range(epochs)):
         total_train_loss = train_one_epoch_reg(model, device, train_dataloader, optimizer, loss_func)
-        total_val_loss = val_loss_reg(model, device, val_dataloader, loss_func)
+        #total_val_loss = val_loss_reg(model, device, val_dataloader, loss_func)
         print("Epoch " + str(epoch) + " train loss: " + str(total_train_loss.item()))
-        print("Epoch " + str(epoch) + " val loss: " + str(total_val_loss.item()))
+        #print("Epoch " + str(epoch) + " val loss: " + str(total_val_loss.item()))
     return model
 
 

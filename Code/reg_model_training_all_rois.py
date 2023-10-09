@@ -63,16 +63,9 @@ if __name__ == '__main__':
 
             # Train model
             print("Training regression model for " + roi + ":")
-            trained_model = train_reg(model, device, train_dataloader, test_dataloader, optimizer, epochs)
+            trained_model = train_reg(model, device, train_dataloader, optimizer, epochs)
 
             # Save model in models directory
             hemisphere_abbr = 'l' if hemisphere=='left' else 'r'
             model_name = "subj" + str(subj_num) + "_" + hemisphere_abbr + "h_" + roi + "_reg_model_e" + str(epochs) + ".pt"
-            torch.save(trained_model, model_name)
-            
-            del model, optimizer, trained_model
-    
-    
-
-
-
+            torch.save(trained_model.state_dict(), model_name)

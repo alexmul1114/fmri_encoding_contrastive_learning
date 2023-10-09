@@ -48,24 +48,18 @@ if __name__ == '__main__':
     if (num_voxels==0):
         print("Empty ROI")
         sys.exit()
-    #print(num_voxels)
+
     
     # Get model, optimizer, and scheduler
-    model, optimizer, scheduler = get_CL_model(num_voxels, device)
+    model, optimizer = get_CL_model(num_voxels, device)
     
     # Train model
     print("Training cl model for subject " + str(subj_num) + " " + str(hemisphere) + " hemisphere - " + roi)
-    trained_model, test_losses = train(model, device, train_dataloader, test_dataloader, optimizer, scheduler, epochs, temp=0.3)
-    #print(val_losses)
+    trained_model = train(model, device, train_dataloader, optimizer, epochs, temp=0.3)
     
     # Save model in models directory
     save_dir = project_dir + r"/cl_models/Subj" + str(subj_num) 
     hemisphere_abbr = 'l' if hemisphere=='left' else 'r'
     model_name = "subj" + str(subj_num) + "_" + hemisphere_abbr + "h_" + roi + "_model_e" + str(epochs) + ".pt"
     os.chdir(save_dir)
-    torch.save(trained_model, model_name)
-    
-    
-
-
-
+    torch.save(trained_model.state_dict(), model_name)

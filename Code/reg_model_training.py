@@ -55,21 +55,14 @@ if __name__ == '__main__':
         print("ROI is too large to train model")
     else:
         # Get model, optimizer, and scheduler
-        model, optimizer = get_reg_model(num_voxels, device)
+        model, optimizer = get_reg_model(num_voxels, device, lr=0.000025)
 
         # Train model
         print("Training reg model for subject " + str(subj_num) + " " + str(hemisphere) + " hemisphere - " + roi)
         #print("Training regression model for " + roi + ":")
-        trained_model  = train_reg(model, device, train_dataloader, test_dataloader, optimizer, epochs)
+        trained_model = train_reg(model, device, train_dataloader, optimizer, epochs)
 
         # Save model in models directory
         hemisphere_abbr = 'l' if hemisphere=='left' else 'r'
-        model_name = "subj" + str(subj_num) + "_" + hemisphere_abbr + "h_" + roi + "reg_model_e" + str(epochs) + ".pt"
-        torch.save(trained_model, model_name)
-
-        del model, optimizer, trained_model
-
-
-
-
-
+        model_name = "subj" + str(subj_num) + "_" + hemisphere_abbr + "h_" + roi + "_reg_model_e" + str(epochs) + ".pt"
+        torch.save(trained_model.state_dict(), model_name)
