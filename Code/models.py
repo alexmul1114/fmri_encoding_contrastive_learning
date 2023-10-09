@@ -41,7 +41,6 @@ class CLR_model(torch.nn.Module):
 
         # Alexnet encoding layers for images
         self.alex = torch.hub.load('pytorch/vision:v0.10.0', 'alexnet', weights=AlexNet_Weights.IMAGENET1K_V1)
-        #self.alex = models.alexnet(weights='DEFAULT')
         
         # Freeze alexnet layers if selected
         if (alex_frozen):
@@ -88,7 +87,7 @@ class CLR_model(torch.nn.Module):
 def train_one_step(model, data, optimizer, temp):
     
     optimizer.zero_grad()
-    #with torch.cuda.amp.autocast():
+    
     fmri_z, img_z = model(data[0], data[1])
     loss = cl_loss(fmri_z, img_z, temp) 
            
@@ -97,16 +96,12 @@ def train_one_step(model, data, optimizer, temp):
     optimizer.step()
     
     torch.cuda.empty_cache()
-    _ = gc.collect()
 
     return loss
 
-def val_one_step(model, data, temp, cross_subj=False, device=None):
+def val_one_step(model, data, temp, device=None):
     # Get output of projection head
-    if (cross_subj):
-        fmri_z, img_z = model(data[0], data[1], device)
-    else:
-        fmri_z, img_z = model(data[0], data[1])
+    fmri_z, img_z = model(data[0], data[1])
     # Compute loss
     loss = cl_loss(fmri_z, img_z, temp)
     return loss
@@ -119,31 +114,28 @@ def train_one_epoch(model, device, dataloader, optimizer, temp):
         total_loss += loss
     return total_loss
 
-def val_loss(model, dataloader, temp, cross_subj, device=None):
+def val_loss(model, dataloader, temp, device=None):
     model.eval()
     total_loss = 0
     for batch_index, data in enumerate(dataloader):
         with torch.no_grad():
-            loss = val_one_step(model, data, temp, cross_subj, device)
+            loss = val_one_step(model, data, temp, device)
             total_loss += loss
     return total_loss
 
 
 
 # Main training function
-def train(model, device, train_dataloader, optimizer, epochs, temp):
+def train(model, device, train_dataloader, optimizer, epochs, temp, val_dataloader=None):
     epoch = 0
-    #val_losses = []
-    # Gradient scaler    
-    scaler = torch.cuda.amp.GradScaler()
+    # Training loop
     for epoch in tqdm(range(epochs)):
         total_train_loss = train_one_epoch(model, device, train_dataloader, optimizer, temp)
-        #total_val_loss = val_loss(model, test_dataloader, temp, cross_subj, device)
-        #val_losses.append(total_val_loss)
-        #scheduler.step(total_val_loss)
         print("Epoch " + str(epoch) + " train loss: " + str(total_train_loss.item()))
-        #print("Epoch " + str(epoch) + " val loss: " + str(total_val_loss.item()))
-    return model   #, val_losses
+        if (val_dataloader is not None):
+            total_val_loss = val_loss(model, val_dataloader, temp, device)
+            print("Epoch " + str(epoch) + " val loss: " + str(total_val_loss.item()))
+    return model  
 
 
 # Function to get CL model, optimizer and scheduler
@@ -153,7 +145,6 @@ def get_CL_model(num_voxels, device, lr=0.0001, alex_frozen=False):
     model = CLR_model(num_voxels, h_dim, z_dim, alex_frozen)
     model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr)
-    #scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=3)
     return model, optimizer
 
 
@@ -164,7 +155,6 @@ class fmri_reg(torch.nn.Module):
     def __init__(self, num_voxels):
         super(fmri_reg, self).__init__()
         # Alexnet layers
-        #self.alex = models.alexnet(weights='DEFAULT')
         self.alex = torch.hub.load('pytorch/vision:v0.10.0', 'alexnet', weights=AlexNet_Weights.IMAGENET1K_V1)
         self.num_voxels = num_voxels
         # Projection to voxels
@@ -218,22 +208,21 @@ def val_loss_reg(model, device, dataloader, loss_func):
 
 
 # Main training function
-def train_reg(model, device, train_dataloader, optimizer, epochs):
+def train_reg(model, device, train_dataloader, optimizer, epochs, val_dataloader=None):
     epoch = 0
     loss_func = torch.nn.MSELoss()
     for epoch in tqdm(range(epochs)):
         total_train_loss = train_one_epoch_reg(model, device, train_dataloader, optimizer, loss_func)
-        #total_val_loss = val_loss_reg(model, device, val_dataloader, loss_func)
         print("Epoch " + str(epoch) + " train loss: " + str(total_train_loss.item()))
-        #print("Epoch " + str(epoch) + " val loss: " + str(total_val_loss.item()))
+        if (val_dataloader is not None):
+            total_val_loss = val_loss_reg(model, device, val_dataloader, loss_func)
+            print("Epoch " + str(epoch) + " val loss: " + str(total_val_loss.item()))
     return model
 
 
 # Function to set up regression network
 def get_reg_model(num_voxels, device, lr=0.0001):
-    
     model = fmri_reg(num_voxels)
     model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr)
-    #scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=3)
     return model, optimizer
