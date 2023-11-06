@@ -629,7 +629,8 @@ def get_improved_voxels(ctrl_corrs, cl_corrs):
 
 
 # Fit PCA to training images
-def fit_pca(feature_extractor, dataloader, num_images, alex_out_size, batch_size, is_cl_feature_extractor=False, num_voxels=0, device=None):
+def fit_pca(feature_extractor, dataloader, num_images, alex_out_layer, alex_out_size, batch_size, is_cl_feature_extractor=False, 
+            is_reg_feature_extractor=False, num_voxels=0):
 
     print("Fitting PCA...")
     features = np.zeros((num_images, alex_out_size))
@@ -641,13 +642,17 @@ def fit_pca(feature_extractor, dataloader, num_images, alex_out_size, batch_size
         else:
             low_idx = high_idx
             high_idx += batch_size
-        # If a CL feature extractor, need to pass dummy fmri data to forward function
+        # If a CL feature extractor, need to pass fmri data to forward function
         if (is_cl_feature_extractor):
-            fmri_dummy = torch.zeros((batch_size, num_voxels)).to(device)
             with torch.no_grad():
                 _, alex_out_dict = feature_extractor(data[0], data[1])
-            ft = alex_out_dict['alex.classifier.6'].detach().numpy()
-
+            ft = alex_out_dict[alex_out_layer].detach()
+            ft = torch.flatten(ft, start_dim=1)
+        elif (is_reg_feature_extractor):
+            with torch.no_grad():
+                _, alex_out_dict = feature_extractor(data[1])
+            ft = alex_out_dict[alex_out_layer].detach()
+            ft = torch.flatten(ft, start_dim=1)
         else:
             with torch.no_grad():
                 ft = feature_extractor(data[1])
@@ -660,9 +665,9 @@ def fit_pca(feature_extractor, dataloader, num_images, alex_out_size, batch_size
     pca = PCA(n_components=1000).fit(features)
     return pca
 
-
-# Given already fit PCA, extract image features
-def extract_pca_features(feature_extractor, dataloader, pca, num_images, batch_size=1024):
+# Given already fit PCA, extract PCA features
+def extract_pca_features(feature_extractor, dataloader, pca, alex_out_layer, num_images, batch_size=1024, is_cl_feature_extractor=False, 
+                         is_reg_feature_extractor=False, num_voxels=0):
 
     print("Extracting PCA Features...")
     features = np.zeros((num_images, 1000))
@@ -674,11 +679,23 @@ def extract_pca_features(feature_extractor, dataloader, pca, num_images, batch_s
             low_idx = high_idx
             high_idx += batch_size
         # Extract features
-        ft = feature_extractor(data[1])
-        # Flatten the features
-        ft = torch.hstack([torch.flatten(l, start_dim=1) for l in ft.values()])
+        if (is_cl_feature_extractor):
+            with torch.no_grad():
+                _, alex_out_dict = feature_extractor(data[0], data[1])
+            ft = alex_out_dict[alex_out_layer].detach()
+            ft = torch.flatten(ft, start_dim=1)
+        elif (is_reg_feature_extractor):
+            with torch.no_grad():
+                _, alex_out_dict = feature_extractor(data[1])
+            ft = alex_out_dict[alex_out_layer].detach()
+            ft = torch.flatten(ft, start_dim=1)
+        else:
+            with torch.no_grad():
+                ft = feature_extractor(data[1])
+            # Flatten the features
+            ft = torch.hstack([torch.flatten(l, start_dim=1) for l in ft.values()]).cpu().detach().numpy()
         # Apply PCA transform
-        ft = pca.transform(ft.cpu().detach().numpy())
+        ft = pca.transform(ft)
         features[low_idx:high_idx] = ft
         del ft
     return features
