@@ -234,13 +234,13 @@ def get_dataloaders_cv(data_dir, device, subj_num, hemisphere, roi_name, batch_s
 
 
 # Function to get image-only dataloaders for test predictions
-def get_img_dataloader(data_dir, device, subj_num, batch_size=1024):
+"""def get_img_dataloader(data_dir, device, subj_num, batch_size=1024):
 
     dataset = algoDataSet_imgs_only(data_dir, device, subj_num)
     num_images = len(dataset)
     dataloader = DataLoader(dataset=dataset, batch_size=batch_size, shuffle=False)
     return dataloader, num_images
-
+"""
 
 # Function to get d(validation) dataloader with image paths for visualizations
 def get_dataloaders_with_img_paths(data_dir, device, subj_num, hemisphere, roi, batch_size=1024):
@@ -367,255 +367,6 @@ def get_fmri_from_dataloader(dataloader, num_images, num_voxels):
     return fmri
 
 
-def get_linear_models(train_dataloader, cl_model, feature_extractor, num_images, num_voxels, alex_dim, h_dim, 
-                      num_pca_comps=500, weighting='linear', num_ks=200):
-    
-    train_fmri, train_img_h, train_img_features, pca = get_data_for_residual_model(train_dataloader, cl_model, feature_extractor, 
-                                                                                   num_images, num_voxels, num_pca_comps, alex_dim, h_dim)
-    
-    # Get training similarities (note that diagonal is set to 0s so dont have to worry about same-image pairs returning highest similarity)
-    train_sims = pairwise_cosine_similarity(train_img_h)
-    
-    # Get similarity-based predicted responses for training images
-    train_preds = torch.zeros((num_images, num_voxels))
-    print("Computing similarity-based predictions...")
-    for img_idx in tqdm(range(num_images)):
-        img_sims = train_sims[img_idx, :]
-        img_sims_sort_order_ascending = torch.argsort(img_sims)
-        total_response = torch.zeros(num_voxels)
-        total_weighting = 0
-        for k in range(num_ks):
-            response_idx = img_sims_sort_order_ascending[-1 * (k+1)]
-            response = train_fmri[response_idx]
-            if (weighting == 'linear'):
-                weight = 1/(k+1)
-                total_weighting += weight
-                weighted_response = response * weight
-                total_response = torch.add(total_response, weighted_response)
-            elif (weighting == 'square'):
-                weight = 1/((k+1)**2)
-                total_weighting += weight   
-                weighted_response = response * weight
-                total_response = torch.add(total_response, weighted_response)
-            elif (weighting == 'sqrt'):
-                weight = 1/((k+1)**0.5)     
-                total_weighting += weight   
-                weighted_response = response * weight
-                total_response = torch.add(total_response, weighted_response)
-        avg_response = total_response / total_weighting
-        train_preds[img_idx] = avg_response
-        
-    # Compute residuals between train predictions and ground truth
-    train_resids = torch.zeros((num_images, num_voxels))
-    for img_idx in range(num_images):
-        train_resids[img_idx] = torch.add(train_preds[img_idx], -1*train_fmri[img_idx])
-        
-    # Get PCA features for train images
-    train_pca_img_features = pca.transform(train_img_features)
-    
-    # Train CL model to predict residuals, control model to predict train fmri
-    train_fmri = train_fmri.cpu().numpy()
-    train_resids = train_resids.cpu().numpy()
-    resid_model = LinearRegression().fit(train_pca_img_features, train_resids)
-    ctrl_model = LinearRegression().fit(train_pca_img_features, train_fmri)
-    
-    return resid_model, ctrl_model, train_fmri, train_img_h, pca
-
-
-def evaluate_linear_models(resid_model, ctrl_model, test_dataloader, train_fmri, train_img_h, pca, cl_model, feature_extractor, num_images, num_voxels, alex_dim, h_dim, 
-                      num_pca_comps=500, weighting='linear', num_ks=200):
-    
-    # Get testing fmri, testing image features, testing image projections
-    test_fmri, test_img_h, test_img_features = get_data_for_validation(test_dataloader, cl_model, 
-                                                                       feature_extractor, num_images, num_voxels, num_pca_comps, alex_dim, h_dim)
-    
-    # Get similarity-based predictions using training image projections
-    test_preds = torch.zeros((num_images, num_voxels))
-    print("Computing similarity-based predictions...")
-    # Should have shape (test_images x train_images)
-    train_test_img_sims = pairwise_cosine_similarity(test_img_h, train_img_h)
-    train_fmri = torch.tensor(train_fmri)
-    for img_idx in range(num_images):
-        img_sims = train_test_img_sims[img_idx, :]
-        img_sims_sort_order_ascending = torch.argsort(img_sims)
-        total_response = torch.zeros(num_voxels)
-        total_weighting = 0
-        for k in range(num_ks):
-            response_idx = img_sims_sort_order_ascending[-1 * (k+1)]
-            response = train_fmri[response_idx]
-            if (weighting == 'linear'):
-                weight = 1/(k+1)
-                total_weighting += weight
-                weighted_response = response * weight
-                total_response = torch.add(total_response, weighted_response)
-            elif (weighting == 'square'):
-                weight = 1/((k+1)**2)
-                total_weighting += weight   
-                weighted_response = response * weight
-                total_response = torch.add(total_response, weighted_response)
-            elif (weighting == 'sqrt'):
-                weight = 1/((k+1)**0.5)     
-                total_weighting += weight   
-                weighted_response = response * weight
-                total_response = torch.add(total_response, weighted_response)
-        avg_response = total_response / total_weighting
-        test_preds[img_idx] = avg_response
-    
-    
-    # Get test image pca features
-    test_img_pca_features = pca.transform(test_img_features)
-    
-    # Use trained residual model to predict and add subtract residuals
-    pred_resids = resid_model.predict(test_img_pca_features)
-    # Subtract predicted residuals to similarity-based predictions to get final CL preds
-    cl_preds = np.add(test_preds, -1*pred_resids)
-    # Get control predictions
-    ctrl_preds = ctrl_model.predict(test_img_pca_features)
-    
-    # Evaluate correlation accuracies
-    ctrl_corr = np.zeros(num_voxels)
-    cl_corr = np.zeros(num_voxels)
-    for voxel_idx in tqdm(range(num_voxels)):
-        ctrl_corr[voxel_idx] = corr(ctrl_preds[:, voxel_idx], test_fmri[:, voxel_idx])[0]
-        cl_corr[voxel_idx] = corr(test_preds[:, voxel_idx], test_fmri[:, voxel_idx])[0]
-  
-    avg_cl_corr = cl_corr.mean()
-    avg_ctrl_corr = ctrl_corr.mean()
-    print("CL Method Correlation: ", np.round(avg_cl_corr,3))
-    print("Control Method Correlation: ", np.round(avg_ctrl_corr,3))
-    
-    return ctrl_corr, cl_corr, test_fmri, test_preds, pred_resids, cl_preds, ctrl_preds, avg_cl_corr, avg_ctrl_corr
-
-
-
-# Function to return fmri data, img_h, pca fit to training images
-def get_train_data_for_prediction(device, dataloader, cl_model, feature_extractor, num_images, num_voxels, h_dim, alex_dim):
-    
-    fmri = torch.zeros((num_images, num_voxels))
-    img_h = torch.zeros((num_images, h_dim))
-    img_alex_features = np.zeros((num_images, alex_dim))
-    
-    print("Getting training features...")
-    for batch_index, data in enumerate(dataloader):
-        with torch.no_grad():
-            
-            fmri_batch = data[0]
-            img_batch = data[1]
-            batch_idxs = data[2]
-            
-            batch_size = fmri_batch.shape[0]
-            if (batch_index == 0):
-                low_idx = 0
-                high_idx = batch_size
-            else:
-                low_idx = high_idx
-                high_idx += batch_size
-                
-            fmri[low_idx:high_idx] = fmri_batch
-                
-            features_batch = feature_extractor(img_batch)
-            features_batch_flat = torch.hstack([torch.flatten(l, start_dim=1) for l in features_batch.values()]).cpu().numpy()
-            img_alex_features[low_idx:high_idx] = features_batch_flat
-            
-            _, img_h_batch = cl_model.forward(fmri_batch, img_batch, device, return_h=True)
-            img_h[low_idx:high_idx] = img_h_batch
-            del fmri_batch, img_batch, _, img_h_batch, features_batch_flat
-            
-    pca = PCA(n_components=500).fit(img_alex_features)
-    img_pca_features = pca.transform(img_alex_features)
-            
-    return fmri, img_h, img_pca_features, pca
-
-
-# Function to get image projections, pca features from fit pca from dataloader with fmri and images or just image dataloader
-def get_img_features(device, dataloader, is_img_dataloader, cl_model, feature_extractor, pca, num_images, num_voxels, h_dim, alex_dim):
-    
-    img_h = torch.zeros((num_images, h_dim))
-    img_alex_features = np.zeros((num_images, alex_dim))
-    
-    print("Getting image features...")
-    for batch_index, data in enumerate(dataloader):
-        with torch.no_grad():
-            
-            if (is_img_dataloader):
-                img_batch = data[0]
-            else:
-                img_batch = data[1]
-            
-            batch_size = img_batch.shape[0]
-            if (batch_index == 0):
-                low_idx = 0
-                high_idx = batch_size
-            else:
-                low_idx = high_idx
-                high_idx += batch_size
-                
-            features_batch = feature_extractor(img_batch)
-            features_batch_flat = torch.hstack([torch.flatten(l, start_dim=1) for l in features_batch.values()]).cpu().numpy()
-            img_alex_features[low_idx:high_idx] = features_batch_flat
-
-            fmri_dummy = torch.zeros((batch_size, num_voxels))
-            _, img_h_batch = cl_model.forward(fmri_dummy, img_batch, device, return_h=True)
-            img_h[low_idx:high_idx] = img_h_batch
-            del img_batch, _, img_h_batch, features_batch, features_batch_flat
-            
-    img_pca_features = pca.transform(img_alex_features)
-    del img_alex_features
-            
-    return img_h, img_pca_features
-
-
-
-# Function to return cl and ctrl preds for test dataloader
-def get_test_preds(device, test_dataloader, is_img_dataloader, feature_extractor, train_fmri, train_img_h, train_img_pca_features, cl_model, pca, test_size, num_voxels, h_dim, alex_dim, weighting='linear', num_ks=200):
-    
-    # Get test img h features, pca features
-    test_img_h, test_img_pca_features = get_img_features(device, test_dataloader, is_img_dataloader, cl_model, feature_extractor, pca, test_size, num_voxels, h_dim, alex_dim)
-    
-    # Get similarity-based predictions
-    cl_preds = torch.zeros((test_size, num_voxels))
-    print("Computing similarity-based predictions...")
-    train_test_img_sims = pairwise_cosine_similarity(test_img_h, train_img_h)
-    for img_idx in tqdm(range(test_size)):
-        img_sims = train_test_img_sims[img_idx, :]
-        img_sims_sort_order_ascending = torch.argsort(img_sims)
-        total_response = torch.zeros(num_voxels)
-        total_weighting = 0
-        for k in range(num_ks):
-            response_idx = img_sims_sort_order_ascending[-1 * (k+1)]
-            response = train_fmri[response_idx]
-            if (weighting == 'linear'):
-                weight = 1/(k+1)
-                total_weighting += weight
-                weighted_response = response * weight
-                total_response = torch.add(total_response, weighted_response)
-            elif (weighting == 'square'):
-                weight = 1/((k+1)**2)
-                total_weighting += weight   
-                weighted_response = response * weight
-                total_response = torch.add(total_response, weighted_response)
-            elif (weighting == 'sqrt'):
-                weight = 1/((k+1)**0.5)     
-                total_weighting += weight   
-                weighted_response = response * weight
-                total_response = torch.add(total_response, weighted_response)
-        avg_response = total_response / total_weighting
-        cl_preds[img_idx, :] = avg_response
-        
-    cl_preds = cl_preds.numpy()
-    
-    
-    # Fit linear model to control image pca features
-    ctrl_model = LinearRegression().fit(train_img_pca_features, train_fmri)
-    
-    # Get control preds as well to use for voxels with no ROI affiliations or that don't improve with CL
-    ctrl_preds = ctrl_model.predict(test_img_pca_features) 
-    
-    return cl_preds, ctrl_preds
-
-
-
-
 # Function that returns percentage of voxels that were improved by CL method over control method
 def get_improved_voxels(ctrl_corrs, cl_corrs):
     
@@ -629,13 +380,17 @@ def get_improved_voxels(ctrl_corrs, cl_corrs):
 
 
 # Fit PCA to training images
-def fit_pca(feature_extractor, dataloader, num_images, alex_out_layer, alex_out_size, batch_size, is_cl_feature_extractor=False, 
-            is_reg_feature_extractor=False, num_voxels=0):
+def fit_pca(feature_extractor, dataloader, num_images, alex_out_layer, alex_out_size, is_cl_feature_extractor=False, 
+            is_reg_feature_extractor=False, make_dummy_fmri_data=False, num_voxels=0):
 
     print("Fitting PCA...")
     features = np.zeros((num_images, alex_out_size))
     for batch_index, data in enumerate(dataloader):
         batch_size = data[0].shape[0]
+        # For cross subject applications need to make dummy fmri data with correct number of voxels
+        # that forward function of model subject is expecting
+        if make_dummy_fmri_data:
+            fmri_dummy = torch.zeros((batch_size, num_voxels))
         if (batch_index==0):
             low_idx = 0
             high_idx = batch_size
@@ -645,7 +400,10 @@ def fit_pca(feature_extractor, dataloader, num_images, alex_out_layer, alex_out_
         # If a CL feature extractor, need to pass fmri data to forward function
         if (is_cl_feature_extractor):
             with torch.no_grad():
-                _, alex_out_dict = feature_extractor(data[0], data[1])
+                if make_dummy_fmri_data:
+                    _, alex_out_dict = feature_extractor(fmri_dummy, data[1])
+                else:
+                    _, alex_out_dict = feature_extractor(data[0], data[1])
             ft = alex_out_dict[alex_out_layer].detach()
             ft = torch.flatten(ft, start_dim=1)
         elif (is_reg_feature_extractor):
@@ -666,22 +424,30 @@ def fit_pca(feature_extractor, dataloader, num_images, alex_out_layer, alex_out_
     return pca
 
 # Given already fit PCA, extract PCA features
-def extract_pca_features(feature_extractor, dataloader, pca, alex_out_layer, num_images, batch_size=1024, is_cl_feature_extractor=False, 
-                         is_reg_feature_extractor=False, num_voxels=0):
+def extract_pca_features(feature_extractor, dataloader, pca, alex_out_layer, num_images, is_cl_feature_extractor=False, 
+                         is_reg_feature_extractor=False, make_dummy_fmri_data=False, num_voxels=0):
 
     print("Extracting PCA Features...")
     features = np.zeros((num_images, 1000))
     for batch_index, data in enumerate(dataloader):
+        batch_size = data[0].shape[0]
         if (batch_index==0):
             low_idx = 0
             high_idx = batch_size
         else:
             low_idx = high_idx
             high_idx += batch_size
+        # For cross subject applications need to make dummy fmri data with correct number of voxels
+        # that forward function of model subject is expecting
+        if make_dummy_fmri_data:
+            fmri_dummy = torch.zeros((batch_size, num_voxels))
         # Extract features
         if (is_cl_feature_extractor):
             with torch.no_grad():
-                _, alex_out_dict = feature_extractor(data[0], data[1])
+                if make_dummy_fmri_data:
+                    _, alex_out_dict = feature_extractor(fmri_dummy, data[1])
+                else:
+                    _, alex_out_dict = feature_extractor(data[0], data[1])
             ft = alex_out_dict[alex_out_layer].detach()
             ft = torch.flatten(ft, start_dim=1)
         elif (is_reg_feature_extractor):
@@ -699,45 +465,3 @@ def extract_pca_features(feature_extractor, dataloader, pca, alex_out_layer, num
         features[low_idx:high_idx] = ft
         del ft
     return features
-
-
-"""
-# Given already fit PCA, extract image features
-def extract_pca_features(feature_extractor, pca, num_images, dataloader, is_img_dataloader, batch_size, is_cl_feature_extractor=False, num_voxels=0, device=None):
-
-    print("Extracting PCA Features...")
-    features = np.zeros((num_images, 1000))
-    for batch_index, data in enumerate(dataloader):
-        if (batch_index==0):
-            low_idx = 0
-            high_idx = batch_size
-        else:
-            low_idx = high_idx
-            high_idx += batch_size
-        # Extract features
-        if (is_img_dataloader):
-            with torch.no_grad():
-                ft = feature_extractor(data[0])
-            ft = torch.hstack([torch.flatten(l, start_dim=1) for l in ft.values()]).cpu().detach().numpy()
-
-        else:
-            # If a CL feature extractor, need to pass dummy fmri data to forward function
-            if (is_cl_feature_extractor):
-                fmri_dummy = torch.zeros((batch_size, num_voxels)).to(device)
-                with torch.no_grad():
-                    _, alex_out_dict = feature_extractor(data[0], data[1])
-                ft = alex_out_dict['alex.classifier.6'].detach().numpy()
-                
-            else:
-                with torch.no_grad():
-                    ft = feature_extractor(data[1])
-                # Flatten the features
-                ft = torch.hstack([torch.flatten(l, start_dim=1) for l in ft.values()]).cpu().detach().numpy()
-
-        # Apply PCA transform
-        ft = pca.transform(ft)
-        features[low_idx:high_idx] = ft
-        del ft
-        
-    return features
-"""

@@ -48,7 +48,8 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font
 import xlwings
 
-
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 # Local imports
 from utils import get_dataloaders, fit_pca, extract_pca_features, get_fmri_from_dataloader, get_dataloaders_with_img_paths, get_dataloaders_cv
@@ -99,12 +100,12 @@ def get_results_single_subj(project_dir, device, subj_num, hemisphere, roi):
     del alex
     
     #Fit PCA using feature extractor
-    pca = fit_pca(feature_extractor, train_dataloader, train_size, best_alex_layer, alex_out_size, batch_size=1024)
+    pca = fit_pca(feature_extractor, train_dataloader, train_size, best_alex_layer, alex_out_size)
     
     # Get training and testing image pca features
     
-    train_pca_features = extract_pca_features(feature_extractor, train_dataloader, pca, best_alex_layer, train_size, batch_size=1024)
-    test_pca_features = extract_pca_features(feature_extractor, test_dataloader, pca, best_alex_layer, test_size, batch_size=1024)
+    train_pca_features = extract_pca_features(feature_extractor, train_dataloader, pca, best_alex_layer, train_size)
+    test_pca_features = extract_pca_features(feature_extractor, test_dataloader, pca, best_alex_layer, test_size)
     
     # Fit control linear encoding model, get test predictions
     control_linear_model = Ridge(alpha=best_untuned_alpha).fit(train_pca_features, train_fmri)
@@ -135,11 +136,11 @@ def get_results_single_subj(project_dir, device, subj_num, hemisphere, roi):
     cl_model.eval()
     cl_layer = "alex." + best_alex_layer
     feature_extractor = tx.Extractor(cl_model, [cl_layer])
-    pca = fit_pca(feature_extractor, train_dataloader, train_size, cl_layer, alex_out_size, batch_size=1024, 
+    pca = fit_pca(feature_extractor, train_dataloader, train_size, cl_layer, alex_out_size, 
                 is_cl_feature_extractor=True, num_voxels=num_voxels)
-    train_features = extract_pca_features(feature_extractor, train_dataloader, pca, cl_layer, train_size, batch_size=1024, 
+    train_features = extract_pca_features(feature_extractor, train_dataloader, pca, cl_layer, train_size, 
                     is_cl_feature_extractor=True, num_voxels=num_voxels)
-    test_features = extract_pca_features(feature_extractor, test_dataloader, pca, cl_layer, test_size, batch_size=1024, 
+    test_features = extract_pca_features(feature_extractor, test_dataloader, pca, cl_layer, test_size, 
                     is_cl_feature_extractor=True, num_voxels=num_voxels)
 
     #cl_encoding_model = Ridge(alpha=10000).fit(train_features, train_fmri)
@@ -168,11 +169,11 @@ def get_results_single_subj(project_dir, device, subj_num, hemisphere, roi):
 
     # Create feature extractor
     feature_extractor = tx.Extractor(reg_model, [cl_layer])
-    pca = fit_pca(feature_extractor, train_dataloader, train_size, cl_layer, alex_out_size, batch_size=1024, 
+    pca = fit_pca(feature_extractor, train_dataloader, train_size, cl_layer, alex_out_size, 
                 is_cl_feature_extractor=False, is_reg_feature_extractor=True, num_voxels=num_voxels)
-    train_features = extract_pca_features(feature_extractor, train_dataloader, pca, cl_layer, train_size, batch_size=1024, 
+    train_features = extract_pca_features(feature_extractor, train_dataloader, pca, cl_layer, train_size, 
                     is_cl_feature_extractor=False, is_reg_feature_extractor=True, num_voxels=num_voxels)
-    test_features = extract_pca_features(feature_extractor, test_dataloader, pca, cl_layer, test_size, batch_size=1024, 
+    test_features = extract_pca_features(feature_extractor, test_dataloader, pca, cl_layer, test_size, 
                     is_cl_feature_extractor=False, is_reg_feature_extractor=True, num_voxels=num_voxels)
 
     #reg_encoding_model = Ridge(alpha=100).fit(train_features, train_fmri)
@@ -270,56 +271,53 @@ def get_results_single_subj_all_rois(project_dir, device, subj_num, hemisphere, 
         
         
         
-
 # Function to get results for using models cross-subject
-def get_results_cross_subj(project_dir, device, hemisphere, roi, save=True, num_subjs=8, reg=False, training_results=False):
+def get_results_cross_subj(project_dir, device, hemisphere, roi, save=True, num_subjs=8, training_results=False):
     
     hemisphere_abbr = 'l' if hemisphere=='left' else 'r'
     
     results_mat = np.zeros((num_subjs, num_subjs))
     voxel_improvement_percentages_ctrl_mat = np.zeros((num_subjs, num_subjs))
-    #voxel_improvement_percentages_reg_mat = np.zeros((num_subjs, num_subjs))
-    
+
+    # Get best alex out layer and corresponding dimension for this ROI
+    best_alex_out_layer_path = project_dir + r"/best_alex_out_layers/best_alex_layer_dict.joblib"
+    best_alex_out_layer_dict = joblib.load(best_alex_out_layer_path)
+    alex_out_layer_dims = {"features.2":46656, "features.5":32448, "features.7":64896, "features.9":43264,
+                        "features.12":9216, "classifier.2":4096, "classifier.5":4096, "classifier.6":1000}
+    roi_out_name = hemisphere_abbr + "h_" + roi
+    best_alex_layer, best_untuned_alpha = best_alex_out_layer_dict[roi_out_name]
+    alex_out_size = alex_out_layer_dims[best_alex_layer]
+    cl_layer = "alex." + best_alex_layer
+
     
     # Get control predictions for this ROI for each subject
     ctrl_preds_all_subjs = []
-    #reg_preds_all_subjs = []
     for subj_idx in range(num_subjs):
         
         subj_num = subj_idx + 1
- 
-        print("Getting control linear encoding model predictions...")
-        best_alex_out_layer_path = project_dir + r"/best_alex_out_layers/Subj" + str(subj_num) + r"/subj" + str(subj_num) + "_" + hemisphere_abbr + "h_best_alex_layer_dict.joblib"
-        best_alex_out_layer_dict = joblib.load(best_alex_out_layer_path)
-        alex_out_layer_dims = {"features.2":46656, "features.5":32448, "features.7":64896, "features.9":43264,
-                               "features.12":9216, "classifier.2":4096, "classifier.5":4096, "classifier.6":1000}
-        best_alex_layer = best_alex_out_layer_dict[roi]
-        alex_out_size = alex_out_layer_dims[best_alex_layer]
 
+        print("Loading fmri data...")
+        train_dataloader, test_dataloader, train_size, test_size, num_voxels = get_dataloaders(project_dir, device, subj_num, hemisphere, roi, 1024, shuffle=False)
+        train_fmri = get_fmri_from_dataloader(train_dataloader, train_size, num_voxels)
+        test_fmri = get_fmri_from_dataloader(test_dataloader, test_size, num_voxels)
+        
+        print("Getting control untuned predictions...")
         alex = torch.hub.load('pytorch/vision:v0.10.0', 'alexnet', weights=AlexNet_Weights.IMAGENET1K_V1)
-        alex.to(device) 
-        alex.eval() 
+        alex.to(device) # send the model to the chosen device 
+        alex.eval() # set the model to evaluation mode
         feature_extractor = create_feature_extractor(alex, return_nodes=[best_alex_layer])
         del alex
         
-        train_dataloader, test_dataloader, train_size, test_size, num_voxels = get_dataloaders(project_dir, device, subj_num, hemisphere, roi, 1024, shuffle=False)
         
         #Fit PCA using feature extractor
-        pca = fit_pca(feature_extractor, train_dataloader, train_size, alex_out_size, batch_size=1024)
-
+        pca = fit_pca(feature_extractor, train_dataloader, train_size, best_alex_layer, alex_out_size)
+    
         # Get training and testing image pca features
-        train_pca_features = extract_pca_features(feature_extractor, pca, train_size, train_dataloader, 
-                                                        is_img_dataloader=False, batch_size=1024)
-        test_pca_features = extract_pca_features(feature_extractor, pca, test_size, test_dataloader, 
-                                                        is_img_dataloader=False, batch_size=1024)
+        train_pca_features = extract_pca_features(feature_extractor, train_dataloader, pca, best_alex_layer, train_size)
+        test_pca_features = extract_pca_features(feature_extractor, test_dataloader, pca, best_alex_layer, test_size)
         
-        print("Loading fmri data...")
-        train_fmri = get_fmri_from_dataloader(train_dataloader, train_size, num_voxels)
-        test_fmri = get_fmri_from_dataloader(test_dataloader, test_size, num_voxels)
-
-
         # Fit control linear encoding model, get test predictions
-        control_linear_model = Ridge(alpha=1000).fit(train_pca_features, train_fmri)
+        control_linear_model = Ridge(alpha=best_untuned_alpha).fit(train_pca_features, train_fmri)
 
         if (training_results):
             ctrl_preds = control_linear_model.predict(train_pca_features)
@@ -327,28 +325,33 @@ def get_results_cross_subj(project_dir, device, hemisphere, roi, save=True, num_
             ctrl_preds = control_linear_model.predict(test_pca_features)
         
         ctrl_preds_all_subjs.append(ctrl_preds)
-        
+    
         
     
     for model_subj_idx in range(num_subjs):
-        
+
         model_subj = model_subj_idx + 1
-        
-        # Load model for model subject
-        if (not reg):
-            model_dir = project_dir + r"/cl_models/Subj" + str(model_subj)
-            model_path = model_dir + r"/subj" + str(model_subj) + "_" + hemisphere_abbr + "h_" + roi + "_model_e30.pt" 
-            model = torch.load(model_path).to(device)
-        else:
-            model_dir = project_dir + r"/baseline_models/nn_reg/Subj" + str(model_subj)
-            model_path = model_dir + r"/subj" + str(model_subj) + "_" + hemisphere_abbr + "h_" + roi + "_reg_model_e75.pt" 
-            model = torch.load(model_path).to(device)
-        
-        # Create feature extractor
-        feature_extractor = tx.Extractor(model, ["alex.classifier.6"]).to(device)
-        del model
-        
-        train_dataloader, test_dataloader, train_size, test_size, num_voxels_model_subj = get_dataloaders(project_dir, device, model_subj, hemisphere, roi, 1024, shuffle=False)
+
+        # Need the number of voxels in the ROI for the model subject
+        _, _, _, _, num_voxels_model_subj = get_dataloaders(project_dir, device, model_subj, hemisphere, roi, 1024, shuffle=False)
+
+        cl_model_dir = project_dir + r"/cl_models/Subj" + str(model_subj)
+        cl_model_path = cl_model_dir + r"/subj" + str(model_subj) + "_" + hemisphere_abbr + "h_" + roi + "_model_e30.pt" 
+        h_dim = int(num_voxels_model_subj*0.8)
+        z_dim = int(num_voxels_model_subj*0.2)
+        cl_model = CLR_model(num_voxels_model_subj, h_dim, z_dim)
+        # Some models seem to be saved differently
+        try:
+            cl_model.load_state_dict(torch.load(cl_model_path, map_location=torch.device('cpu'))[0].state_dict())
+        except:
+            try:
+                cl_model.load_state_dict(torch.load(cl_model_path, map_location=torch.device('cpu')).state_dict())
+            except:
+                cl_model.load_state_dict(torch.load(cl_model_path, map_location=torch.device('cpu')))
+        cl_model.to(device)
+        cl_model.eval()
+        feature_extractor = tx.Extractor(cl_model, [cl_layer])
+        del cl_model
         
 
         for target_subj_idx in range(num_subjs):
@@ -361,57 +364,25 @@ def get_results_cross_subj(project_dir, device, hemisphere, roi, save=True, num_
             if (num_voxels_target_subj==0):
                 results_mat[model_subj_idx, target_subj_idx] = -1
             else:
+
                 # Get training and testing fmri for target subj
                 print("Loading fmri data...")
                 train_fmri = get_fmri_from_dataloader(train_dataloader, train_size, num_voxels_target_subj)
                 test_fmri = get_fmri_from_dataloader(test_dataloader, test_size, num_voxels_target_subj)
 
-                # Get training and testing tuned alexnet features
-                print("Getting train image features...")
-                train_features = np.zeros((train_size, 1000))
-                for batch_index, data in tqdm(enumerate(train_dataloader), total=len(train_dataloader)):
-                    batch_size = data[0].shape[0]
-                    if (batch_index==0):
-                        low_idx = 0
-                        high_idx = batch_size
-                    else:
-                        low_idx = high_idx
-                        high_idx += batch_size
-                    # Extract features
-                    with torch.no_grad():
-                        if (not reg):
-                            fmri_dummy = torch.zeros((batch_size, num_voxels_model_subj)).to(device)
-                            _, alex_out_dict = feature_extractor(fmri_dummy, data[1])
-                        else:
-                            _, alex_out_dict = feature_extractor(data[1])
-                    ft = alex_out_dict['alex.classifier.6'].detach().cpu().numpy()
-                    train_features[low_idx:high_idx] = ft
-                    del ft
+                # Get image features for target subj images
+                print("Getting image features...")
+                pca = fit_pca(feature_extractor, train_dataloader, train_size, cl_layer, alex_out_size, is_cl_feature_extractor=True, 
+                              make_dummy_fmri_data=True, num_voxels=num_voxels_model_subj)
+                train_features = extract_pca_features(feature_extractor, train_dataloader, pca, cl_layer, train_size, 
+                                is_cl_feature_extractor=True, make_dummy_fmri_data=True, num_voxels=num_voxels_model_subj)
+                test_features = extract_pca_features(feature_extractor, test_dataloader, pca, cl_layer, test_size,  
+                                is_cl_feature_extractor=True, make_dummy_fmri_data=True, num_voxels=num_voxels_model_subj)
 
-                print("Getting test image features...")
-                test_features = np.zeros((test_size, 1000))
-                for batch_index, data in tqdm(enumerate(test_dataloader), total=len(test_dataloader)):
-                    batch_size = data[0].shape[0]
-                    if (batch_index==0):
-                        low_idx = 0
-                        high_idx = batch_size
-                    else:
-                        low_idx = high_idx
-                        high_idx += batch_size
-                    # Extract features
-                    with torch.no_grad():
-                        if (not reg):
-                            fmri_dummy = torch.zeros((batch_size, num_voxels_model_subj)).to(device)
-                            _, alex_out_dict = feature_extractor(fmri_dummy, data[1])
-                        else:
-                            _ , alex_out_dict = feature_extractor(data[1])
-                    ft = alex_out_dict['alex.classifier.6'].detach().cpu().numpy()
-                    test_features[low_idx:high_idx] = ft
-                    del ft
-
+            
                 # Fit encoding model and use it to predict test fmri
                 print("Fitting linear encoding model...")
-                encoding_model = Ridge(alpha=10000).fit(train_features, train_fmri)
+                encoding_model = Ridge(alpha=best_untuned_alpha).fit(train_features, train_fmri)
                 
                 if (training_results):
                     cs_preds = encoding_model.predict(train_features)
@@ -433,37 +404,21 @@ def get_results_cross_subj(project_dir, device, hemisphere, roi, save=True, num_
                         cs_corrs[v] = corr(test_fmri[:, v], cs_preds[:, v])[0]
 
                 # Save mean correlation
-                mean_ctrl_corr = ctrl_corrs.mean()
                 mean_cs_corr = cs_corrs.mean()
                 
-                print(mean_ctrl_corr, mean_cs_corr)
-                
                 results_mat[model_subj_idx, target_subj_idx] = mean_cs_corr
-                print(results_mat)
-
-                
                 voxel_improvement_percentages_ctrl_mat[model_subj_idx, target_subj_idx] = np.count_nonzero(cs_corrs - ctrl_corrs > 0) / num_voxels_target_subj
-                
-                
+
+                print(results_mat)
                 print(voxel_improvement_percentages_ctrl_mat)
-      
             
     if (save):
-        if (not reg):
-            if (training_results):
-                accuracies_save_path = project_dir + "/results/" + roi + "_" + hemisphere_abbr + "h_cross_subject_cl_results_mat_training.npy"
-                voxel_improvement_percentages_ctrl_save_path = project_dir + "/results/" + roi + hemisphere_abbr + "h_cs_voxel_improvement_percentages_cl_mat_training.npy"
-            else:
-                accuracies_save_path = project_dir + "/results/" + roi + hemisphere_abbr + "h_cross_subject_cl_results_mat.npy"
-                voxel_improvement_percentages_ctrl_save_path = project_dir + "/results/" + roi + hemisphere_abbr + "h_cs_voxel_improvement_percentages_cl_mat.npy"
+        if (training_results):
+            accuracies_save_path = project_dir + "/results/" + roi + "_" + hemisphere_abbr + "h_cross_subject_cl_results_mat_training.npy"
+            voxel_improvement_percentages_ctrl_save_path = project_dir + "/results/" + roi + hemisphere_abbr + "h_cs_voxel_improvement_percentages_cl_mat_training.npy"
         else:
-            if (training_results):
-                accuracies_save_path = project_dir + "/results/" + roi + hemisphere_abbr + "h_cross_subject_reg_results_mat_training.npy"
-                voxel_improvement_percentages_ctrl_save_path = project_dir + "/results/" + roi + hemisphere_abbr + "h_cs_voxel_improvement_percentages_reg_mat_training.npy" 
-            else:
-                accuracies_save_path = project_dir + "/results/" + roi + hemisphere_abbr + "h_cross_subject_reg_results_mat.npy"
-                voxel_improvement_percentages_ctrl_save_path = project_dir + "/results/" + roi + hemisphere_abbr + "h_cs_voxel_improvement_percentages_reg_mat.npy"
-       
+            accuracies_save_path = project_dir + "/results/" + roi + hemisphere_abbr + "h_cross_subject_cl_results_mat.npy"
+            voxel_improvement_percentages_ctrl_save_path = project_dir + "/results/" + roi + hemisphere_abbr + "h_cs_voxel_improvement_percentages_cl_mat.npy"
         np.save(accuracies_save_path, results_mat)
         np.save(voxel_improvement_percentages_ctrl_save_path, voxel_improvement_percentages_ctrl_mat)
 
@@ -485,9 +440,6 @@ def image_classification_results(project_dir, subj_num, hemisphere, rois, device
         transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]) # normalize the images color channels
                 ])
     
-    # Initialize the Weight Transforms
-    from torchvision.models import AlexNet_Weights
-    
     # Load the Data
     if (dataset_name=='caltech256'):
         image_dir = project_dir + "/caltech256"
@@ -508,9 +460,6 @@ def image_classification_results(project_dir, subj_num, hemisphere, rois, device
     train_size = int(0.85 * total_num_images)
     test_size = total_num_images - train_size
     
-    #train_size = 5000
-    #test_size = 5000
-    
     train_idxs = shuffled_idxs[:train_size]
     test_idxs = shuffled_idxs[train_size:train_size+test_size]
     
@@ -527,11 +476,11 @@ def image_classification_results(project_dir, subj_num, hemisphere, rois, device
     alex.to(device) 
     alex.eval() 
     
-    feature_extractor = create_feature_extractor(alex, return_nodes=['classifier.6']).to(device)
+    feature_extractor = create_feature_extractor(alex, return_nodes=['classifier.5']).to(device)
     del alex
     
     # Get untuned alexnet features
-    train_features_untuned = np.zeros((train_size, 1000))
+    train_features_untuned = np.zeros((train_size, 4096))
     train_labels = np.zeros(train_size)
     for batch_index, data in tqdm(enumerate(train_dataloader), total=len(train_dataloader)):
         batch_size = data[0].shape[0]
@@ -550,7 +499,7 @@ def image_classification_results(project_dir, subj_num, hemisphere, rois, device
         train_labels[low_idx:high_idx] = data[1]
         del ft
     
-    test_features_untuned = np.zeros((test_size, 1000))
+    test_features_untuned = np.zeros((test_size, 4096))
     test_labels = np.zeros(test_size)
     for batch_index, data in tqdm(enumerate(test_dataloader), total=len(test_dataloader)):
         batch_size = data[0].shape[0]
@@ -600,14 +549,30 @@ def image_classification_results(project_dir, subj_num, hemisphere, rois, device
         else:
 
             if (tuning_method=='cl'):
-                model_path = project_dir + "/cl_models/Subj" + str(subj_num) + "/subj" + str(subj_num) + "_" + hemisphere_abbr + "h_" + roi + "_model_e30.pt"
-                model = torch.load(model_path).to(device)
+                model_dir = project_dir + r"/cl_models/Subj" + str(subj_num)
+                model_path = model_dir + r"/subj" + str(subj_num) + "_" + hemisphere_abbr + "h_" + roi + "_model_e30.pt" 
+                h_dim = int(num_voxels*0.8)
+                z_dim = int(num_voxels*0.2)
+                model = CLR_model(num_voxels, h_dim, z_dim)
+                #model_path = project_dir + "/cl_models/Subj" + str(subj_num) + "/subj" + str(subj_num) + "_" + hemisphere_abbr + "h_" + roi + "_model_e30.pt"
+                #model = torch.load(model_path).to(device)
 
             elif (tuning_method=='reg'):
                 model_dir = project_dir + r"/baseline_models/nn_reg/Subj" + str(subj_num)
                 model_path = model_dir + r"/subj" + str(subj_num) + "_" + hemisphere_abbr + "h_" + roi + "_reg_model_e75.pt" 
-                model = torch.load(model_path).to(device)
+                model = fmri_reg(num_voxels)
+           
+            # Some models seem to be saved differently
+            try:
+                model.load_state_dict(torch.load(model_path)[0].state_dict())
+            except:
+                try:
+                    model.load_state_dict(torch.load(model_path).state_dict())
+                except:
+                    model.load_state_dict(torch.load(model_path))
 
+            model.to(device)
+            model.eval()
             feature_extractor = tx.Extractor(model, ["alex.classifier.5"]).to(device)
 
             train_features_tuned = np.zeros((train_size, 4096))
@@ -805,48 +770,60 @@ def find_alpha(data_dir, device, subj_num, hemisphere, roi_name, model_type="cl"
 
 
 
-# Helper function to gather results into array for t test
-def get_results_arr_from_dicts(lh_results, rh_results):
-    results = []
+# Helper function to gather results into one list
+def append_results_from_dict(existing_results, lh_results, rh_results):
     for key in (lh_results.keys()):
         if (lh_results[key] != -1):
-            results.append(lh_results[key])  
+            existing_results.append(lh_results[key])  
     for key in (rh_results.keys()):
         if (rh_results[key] != -1):
-            results.append(rh_results[key])  
-    results = np.array(results)
-    return results
+            existing_results.append(rh_results[key])  
+    return existing_results
 
-# Paired t test between ROIs for a given subject
-def t_test(project_dir, subj_num):
+# Paired t test (sample size = 8 subjects for each ROI)
+def t_test(project_dir):
 
     results_dir = project_dir + "/results"
 
-    # Load results dictionaries
-    lh_ctrl_results = joblib.load(results_dir + "/Subj" + str(subj_num) + "/subj" + str(subj_num) + "_lh_ctrl_results.joblib")
-    rh_ctrl_results = joblib.load(results_dir + "/Subj" + str(subj_num) + "/subj" + str(subj_num) + "_rh_ctrl_results.joblib")
-    lh_cl_results = joblib.load(results_dir + "/Subj" + str(subj_num) + "/subj" + str(subj_num) + "_lh_cl_results.joblib")
-    rh_cl_results = joblib.load(results_dir + "/Subj" + str(subj_num) + "/subj" + str(subj_num) + "_rh_cl_results.joblib")
-    lh_reg_results = joblib.load(results_dir + "/Subj" + str(subj_num) + "/subj" + str(subj_num) + "_lh_reg_results.joblib")
-    rh_reg_results = joblib.load(results_dir + "/Subj" + str(subj_num) + "/subj" + str(subj_num) + "_rh_reg_results.joblib")
+    subj_nums = range(1,9)
 
-    # Gather results into arrays
-    ctrl_results_arr = get_results_arr_from_dicts(lh_ctrl_results, rh_ctrl_results)
-    cl_results_arr = get_results_arr_from_dicts(lh_cl_results, rh_cl_results)
-    reg_results_arr = get_results_arr_from_dicts(lh_reg_results, rh_reg_results)
-
-    # Dict to save results to
-    t_test_results_dict = {}
-    t_test_results_dict_save_path = results_dir + "/Subj" + str(subj_num) + "/subj" + str(subj_num) + "_t_test_results_dict.joblib"
-
-    # Two sided t test
-    t_test_results_dict["cl_vs_ctrl_p"] = ttest_rel(cl_results_arr, ctrl_results_arr)[1]
-    t_test_results_dict["cl_vs_reg_p"] = ttest_rel(cl_results_arr, reg_results_arr)[1]
-    t_test_results_dict["reg_vs_ctrl_p"] = ttest_rel(reg_results_arr, ctrl_results_arr)[1]
+    hemispheres = ["lh", "rh"]
+    all_rois = ["V1v", "V1d", "V2v", "V2d", "V3v", "V3d", "hV4", "EBA", "FBA-1", "FBA-2",
+            "mTL-bodies", "OFA", "FFA-1", "FFA-2", "mTL-faces", "aTL-faces", "OPA",
+         "PPA", "RSC", "OWFA", "VWFA-1", "VWFA-2", "mfs-words", "mTL-words",
+       "early", "midventral", "midlateral", "midparietal", "ventral", "lateral", "parietal"]
     
-    joblib.dump(t_test_results_dict, t_test_results_dict_save_path)
+    # Collect results for each roi and method (key = roi, value = p-value)
+    t_test_results_cl_vs_ctrl = {}
+    t_test_results_cl_vs_reg = {}
+    t_test_results_reg_vs_ctrl = {}
 
+    for roi in all_rois:
+        for hemisphere in hemispheres:
+            ctrl_results = []
+            cl_results = []
+            reg_results = []
+            for subj_num in subj_nums:
+                ctrl_results.append(joblib.load(results_dir + "/Subj" + str(subj_num) + "/subj" + str(subj_num) + "_" + hemisphere + "_ctrl_results.joblib")[roi])
+                cl_results.append(joblib.load(results_dir + "/Subj" + str(subj_num) + "/subj" + str(subj_num) + "_" + hemisphere + "_cl_results.joblib")[roi])
+                reg_results.append(joblib.load(results_dir + "/Subj" + str(subj_num) + "/subj" + str(subj_num) + "_" + hemisphere + "_reg_results.joblib")[roi])
+                
+            ctrl_results = np.array(ctrl_results)
+            cl_results = np.array(cl_results)
+            reg_results = np.array(reg_results)
 
+            roi_results_name = hemisphere + "_" + roi
+            t_test_results_cl_vs_ctrl[roi_results_name] = ttest_rel(cl_results, ctrl_results)[1]
+            t_test_results_cl_vs_reg[roi_results_name] = ttest_rel(cl_results, reg_results)[1]
+            t_test_results_reg_vs_ctrl[roi_results_name] = ttest_rel(reg_results, ctrl_results)[1]
+    
+    t_test_results_cl_vs_ctrl_save_path = project_dir + "/results/t_test_results_cl_vs_ctrl_dict.joblib"
+    t_test_results_cl_vs_reg_save_path = project_dir + "/results/t_test_results_cl_vs_reg_dict.joblib"
+    t_test_results_reg_vs_ctrl_save_path = project_dir + "/results/t_test_results_reg_vs_ctrl_dict.joblib"
+
+    joblib.dump(t_test_results_cl_vs_ctrl, t_test_results_cl_vs_ctrl_save_path)
+    joblib.dump(t_test_results_cl_vs_reg, t_test_results_cl_vs_reg_save_path)
+    joblib.dump(t_test_results_reg_vs_ctrl, t_test_results_reg_vs_ctrl_save_path)
 
 # Function to create excel file with results in formatted table
 # Function to create excel file with results in formatted table
@@ -928,11 +905,10 @@ def create_excel_results(project_dir):
                         
     # Save file
     wb.save("Single_subject_results.xlsx")
-    
 
     # Open file in data reading mode to get avg values for each subject
 
-    # This part only works on Windows
+    # This part only works if excel is installed on the system
     excel_app = xlwings.App(visible=False)
     excel_book = excel_app.books.open("Single_subject_results.xlsx")
     excel_book.save()
@@ -971,17 +947,13 @@ def make_avgs_excel_table(project_dir, workbook, group):
     title = "Subj avgs " + group
     workbook.create_sheet(title)
     ws = workbook[title]
-    titles = ["Subject", "Avg. Ctrl. Acc.", "Avg. CL Acc.", "Avg. Reg Acc.", "Avg. % of voxels improved vs ctrl", "Avg. % of voxels improved vs reg", "CL vs. Ctrl p-value"]
-    if group == "all":
-        cols.append("G")
+    titles = ["Subject", "Avg. Ctrl. Acc.", "Avg. CL Acc.", "Avg. Reg Acc.", "Avg. % of voxels improved vs ctrl", "Avg. % of voxels improved vs reg"]
     # Add titles
     for (col, title) in zip(cols, titles):
         ws[col + "1"] = title
         ws[col + "1"].font = Font(bold=True)
     # Fill in data
     for subj_num in subj_nums:
-        if group == "all":
-            p_values = joblib.load(project_dir + "/results/Subj" + subj_num + "/subj" + subj_num + "_t_test_results_dict.joblib")
         for (col, title) in zip(cols, titles):
             row = str(int(subj_num) + 1)
             if col == "A":
@@ -992,8 +964,6 @@ def make_avgs_excel_table(project_dir, workbook, group):
             elif col in ["E", "F"]:
                 ws[col + row] = subj_avgs[title][int(subj_num) - 1]
                 ws[col + row].number_format = '00.0'
-            else:
-                ws[col + row] = p_values["cl_vs_ctrl_p"]
 
     # Final averages
     for col in cols:
@@ -1005,8 +975,146 @@ def make_avgs_excel_table(project_dir, workbook, group):
         elif (col in ["E", "F"]):
             ws[col + "10"] = "=AVERAGE(" + col + "2:" + col + "9" + ")"
             ws[col + "10"].number_format = '00.0'
-        else:
-            ws[col + "10"] = "-"
         ws[col + "10"].font = Font(bold=True)
 
     workbook.save("Single_subject_results.xlsx")
+
+
+
+# Function to create heatmaps for cross-subject results
+#def cs_heatmap(project_dir, data, roi_name, method, improvement_percentages=True, save=False, average=False):
+def cs_heatmap(project_dir, roi, hemisphere):
+
+    hemisphere_abbr = 'lh' if hemisphere == 'left' else 'rh'
+    roi_name = hemisphere_abbr.upper() + " " + roi
+
+    try:
+        file_path = project_dir + "/results/" + roi + "_" + hemisphere_abbr + "_cs_voxel_improvement_percentages_cl_mat.npy"
+        cs_results = np.load(file_path)
+    except:
+        file_path = project_dir + "/results/" + roi + hemisphere_abbr + "_cs_voxel_improvement_percentages_cl_mat.npy"
+        cs_results = np.load(file_path)
+
+    num_subjs = 8
+    
+    # Meet figure requirements for neural computation manuscript (min. 600 dpi, figsize = 4.25x7 in)
+    fig, axs = plt.subplots(1, num_subjs, figsize=(4.25,4.25), gridspec_kw={'wspace': 0}, dpi=600)
+
+    subj_labels = [str(x) for x in range(1, num_subjs+1)]
+    
+    cmap = 'Reds'
+    cmap_grad_tol = 0.01
+    
+    counter = 0
+    sns.set(font_scale=0.6)
+    for column in range(num_subjs):
+        col_data = cs_results[:, column]
+        if (column==0):
+            sns.heatmap(col_data.reshape(num_subjs,1), yticklabels=subj_labels, xticklabels=[subj_labels[counter]], ax=axs[counter],
+                    annot=True, fmt='.3f', cmap=cmap, cbar=False, vmin=np.min(col_data)-cmap_grad_tol, vmax=np.max(col_data)+cmap_grad_tol)
+        else:
+            sns.heatmap(col_data.reshape(num_subjs,1), yticklabels=[], xticklabels=[subj_labels[counter]], ax=axs[counter],
+                    annot=True, fmt='.3f', cmap=cmap, cbar=False, vmin=np.min(col_data)-cmap_grad_tol, vmax=np.max(col_data)+cmap_grad_tol)
+        counter += 1
+
+
+    fig.supylabel("Model Subject")
+    fig.supxlabel("Evaluation Subject")
+    #if (improvement_percentages):
+    title = "Cross Subject Voxel Improvement Percentages vs. Ctrl for " + roi_name 
+    #else:
+    #    title = "Cross Subject Average Correlations for " + roi_name + " (" + method + ")"
+    plt.suptitle(title)
+    
+    results_dir = project_dir + "/results/"
+    fig_save_path = results_dir + roi + "_" + hemisphere_abbr + "_cs_picture_cl"
+    plt.savefig(fig_save_path)
+    
+
+# Plot average cross-subject voxel improvement percentages across all ROIs, split by group (early, higher, anatomical, all)
+def cs_heatmap_avgs(project_dir, group='all'):
+
+    hemisphere_abbrs = ['lh', 'rh']
+    num_subjs = 8
+
+    #all_rois = ["V1v", "V1d", "V2v", "V2d", "V3v", "V3d", "hV4", "EBA", "FBA-1", "FBA-2",
+    #        "mTL-bodies", "OFA", "FFA-1", "FFA-2", "mTL-faces", "aTL-faces", "OPA",
+     #           "PPA", "RSC", "OWFA", "VWFA-1", "VWFA-2", "mfs-words", "mTL-words",
+     #       "early", "midventral", "midlateral", "midparietal", "ventral", "lateral", "parietal"]
+
+     
+    # Only include ROIs which are present in all subjects
+    if group == 'early':
+        rois = ["V1v", "V1d", "V2v", "V2d", "V3v", "V3d", "hV4"]
+    elif group == 'higher':
+        rois = ["EBA", "FBA-1", "FBA-2", "mTL-bodies", "OFA", "FFA-1", "FFA-2", "mTL-faces", "aTL-faces", "OPA",
+                "PPA", "RSC", "OWFA", "VWFA-1", "VWFA-2", "mfs-words", "mTL-words"]
+    elif group == 'anatomical':
+        rois = ["early", "midventral", "midlateral", "midparietal", "ventral", "lateral", "parietal"]
+    elif group == 'all':
+        rois = ["V1v", "V1d", "V2v", "V2d", "V3v", "V3d", "hV4", "EBA", "FBA-1", "FBA-2",
+            "mTL-bodies", "OFA", "FFA-1", "FFA-2", "mTL-faces", "aTL-faces", "OPA",
+                "PPA", "RSC", "OWFA", "VWFA-1", "VWFA-2", "mfs-words", "mTL-words",
+            "early", "midventral", "midlateral", "midparietal", "ventral", "lateral", "parietal"]
+    else:
+        print("Invalid group!")
+        return
+
+
+    roi_counter = 0
+    roi_results = []
+    for roi in rois:
+        for hemisphere_abbr in hemisphere_abbrs:
+            try:
+                file_path = project_dir + "/results/" + roi + "_" + hemisphere_abbr + "_cs_voxel_improvement_percentages_cl_mat.npy"
+                roi_results.append(np.load(file_path))
+                roi_counter += 1
+            except:
+                try:
+                    file_path = project_dir + "/results/" + roi + hemisphere_abbr + "_cs_voxel_improvement_percentages_cl_mat.npy"
+                    roi_results.append(np.load(file_path))
+                    roi_counter += 1
+                except:
+                    pass
+            
+            
+    all_results = np.zeros((num_subjs, num_subjs, roi_counter))
+    print("Number of rois included for " + group + " group: "  + str(roi_counter))
+    for counter, roi_result in enumerate(roi_results):
+        all_results[:,:, counter] = roi_result
+
+    result_avgs = np.mean(all_results, axis=2)
+
+    # Meet figure requirements for neural computation manuscript (min. 600 dpi, figsize = 4.25x7 in)
+    fig, axs = plt.subplots(1, num_subjs, figsize=(4.25,4.25), gridspec_kw={'wspace': 0}, dpi=600)
+
+    subj_labels = [str(x) for x in range(1, num_subjs+1)]
+    
+    cmap = 'Reds'
+    cmap_grad_tol = 0.01
+    
+    counter = 0
+    sns.set(font_scale=0.6)
+    for column in range(num_subjs):
+        col_data = result_avgs[:, column]
+        if (column==0):
+            sns.heatmap(col_data.reshape(num_subjs,1), yticklabels=subj_labels, xticklabels=[subj_labels[counter]], ax=axs[counter],
+                    annot=True, fmt='.3f', cmap=cmap, cbar=False, vmin=np.min(col_data)-cmap_grad_tol, vmax=np.max(col_data)+cmap_grad_tol)
+        else:
+            sns.heatmap(col_data.reshape(num_subjs,1), yticklabels=[], xticklabels=[subj_labels[counter]], ax=axs[counter],
+                    annot=True, fmt='.3f', cmap=cmap, cbar=False, vmin=np.min(col_data)-cmap_grad_tol, vmax=np.max(col_data)+cmap_grad_tol)
+        counter += 1
+
+
+    fig.supylabel("Model Subject")
+    fig.supxlabel("Evaluation Subject")
+    if (group != 'all'):
+        title = "Avg CS Voxel Improvement Percentages vs. Ctrl for " + group + " group"
+    else:
+        title = "Avg CS Voxel Improvement Percentages vs. Ctrl for all ROIs"
+    plt.suptitle(title)
+    
+    results_dir = project_dir + "/results/"
+    fig_save_path = results_dir + group + "_group_cs_avgs_picture"
+    plt.savefig(fig_save_path)
+                
