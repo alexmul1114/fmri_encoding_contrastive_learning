@@ -141,7 +141,55 @@ class algoDataSet(Dataset):
 
     def get_img_paths(self):
         return self.img_paths
+    
 
+def get_num_voxels(data_dir, subj_num, hemisphere, roi_name):
+
+    fmri_path = os.path.join(
+        data_dir, "training_fmri", "Subj" + str(subj_num))
+    imgs_path = os.path.join(
+        data_dir, "training_images", "Subj" + str(subj_num))
+    roi_masks_path = os.path.join(
+        data_dir, "roi_masks", "Subj" + str(subj_num))
+
+    # Get roi masks
+    lh_challenge_rois, rh_challenge_rois, roi_names, roi_name_maps = get_roi_mapping_files(
+        roi_masks_path)
+    if hemisphere == 'left':
+        challenge_rois = lh_challenge_rois
+    elif hemisphere == 'right':
+        challenge_rois = rh_challenge_rois
+
+    # Get all fmri data
+    if hemisphere == 'left':
+        all_fmri = np.load(os.path.join(
+            fmri_path, 'subj' + str(subj_num) + '_lh_training_fmri.npy'))
+    elif hemisphere == 'right':
+        all_fmri = np.load(os.path.join(
+            fmri_path, 'subj' + str(subj_num) + '_rh_training_fmri.npy'))
+    if roi_name == 'all':
+        fmri_data = torch.from_numpy(all_fmri)
+        del all_fmri
+    else:
+        # Select fmri data from desired ROI
+        roi_group_idx = -1
+        roi_idx = -1
+        for roi_group in range(len(roi_name_maps)):
+            for roi in roi_name_maps[roi_group]:
+                if roi_name_maps[roi_group][roi] == roi_name:
+                    roi_group_idx = roi_group
+                    roi_idx = roi
+                    break
+        # Get indices of voxels in selected ROI
+        roi_indices = np.argwhere(challenge_rois[roi_group_idx] == roi_idx)
+        roi_indices = roi_indices
+        # Select fmri data for selected ROI
+        fmri_roi = all_fmri[:, roi_indices].reshape(
+            all_fmri.shape[0], roi_indices.shape[0])
+        del all_fmri
+        fmri_data = torch.from_numpy(fmri_roi)
+
+    return fmri_data.shape[1]
 
 # Function to create dataloaders
 def get_dataloaders(data_dir, device, subj_num, hemisphere, roi_name, batch_size=1024, use_all_data=False, shuffle=True):
