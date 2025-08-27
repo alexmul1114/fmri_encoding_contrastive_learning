@@ -18,5 +18,6 @@ For all runnable scripts, options are specified at the begining of the file. <br
 **fit_encoding_models.py** - script that used untuned, cl-tuned, reg-tuned, or pooled-tuned AlexNet as feature extractor to fit encoding models for NSD dataset. <br>
 **fit_encoding_models_nod.py** - script that used untuned, cl-tuned, reg-tuned, or pooled-tuned AlexNet as feature extractor to fit encoding models for NOD dataset. <br>
 **generate_results.py** - script that can be used to generate results for downstream image classification tasks, mutual information lower bound estimates, more.
+**feature_extraction_model_landscape_imagenet.ipynb** - notebook that can be used to generate model landscape plots
 
 
