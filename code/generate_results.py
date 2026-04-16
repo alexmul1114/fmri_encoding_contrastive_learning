@@ -79,6 +79,7 @@ if __name__ == '__main__':
     elif method == "voxel-counts":
         make_voxels_counts_file(project_dir, hemisphere)
     elif method == "save-embeddings":
-        save_embeddings(project_dir, subj_num, hemisphere, rois, device)
+        for roi in rois:
+            save_embeddings(project_dir, subj_num, hemisphere, roi, device)
     else:
         print("Invalid method")
