@@ -65,9 +65,10 @@ def get_roi_mapping_files(path_to_masks):
 # Function to define fmri and images dataset
 class algoDataSet(Dataset):
 
-    def __init__(self, data_dir, device, subj_num, hemisphere, roi_name):
+    def __init__(self, data_dir, device, subj_num, hemisphere, roi_name, return_nsd_id=False):
 
         self.device = device
+        self.return_nsd_id = return_nsd_id
 
         # Paths to data
         fmri_path = os.path.join(
@@ -130,14 +131,20 @@ class algoDataSet(Dataset):
         return len(self.img_paths)
 
     def __getitem__(self, idx):
-        # Load the image
+        # Load the image and its NSD id
         img_path = self.img_paths[idx]
         img = Image.open(img_path).convert('RGB')
+        
         # Preprocess the image and send it to the chosen device ('cpu' or 'cuda')
         img = self.transform(img).to(self.device)
         # Load fmri
         fmri = self.fmri_data[idx].to(self.device)
-        return fmri, img, idx
+
+        if self.return_nsd_id:
+            nsd_id = img_path.split("nsd-")[1].split(".")[0]
+            return fmri, img, idx, nsd_id
+        else:
+            return fmri, img, idx
 
     def get_img_paths(self):
         return self.img_paths
@@ -192,13 +199,13 @@ def get_num_voxels(data_dir, subj_num, hemisphere, roi_name):
     return fmri_data.shape[1]
 
 # Function to create dataloaders
-def get_dataloaders(data_dir, device, subj_num, hemisphere, roi_name, batch_size=1024, use_all_data=False, shuffle=True):
+def get_dataloaders(data_dir, device, subj_num, hemisphere, roi_name, batch_size=1024, use_all_data=False, shuffle=True, return_nsd_id=False):
 
     # Seed generator
     torch.manual_seed(0)
 
     # Create dataset for fmri and image data
-    dataset = algoDataSet(data_dir, device, subj_num, hemisphere, roi_name)
+    dataset = algoDataSet(data_dir, device, subj_num, hemisphere, roi_name, return_nsd_id)
     # Make sure ROI is not empty
     num_voxels = len(dataset[0][0])
     if num_voxels == 0:

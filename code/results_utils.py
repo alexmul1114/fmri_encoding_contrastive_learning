@@ -661,3 +661,65 @@ def load_test_cv_single_subj_results_all_layers(project_dir, subj_num):
     pooled_const_results = np.load(pooled_const_results_path)
 
     return untuned_results, cl_tuned_results, reg_tuned_results, pooled_avg_results, pooled_const_results
+
+
+
+# Generate embeddings for test images from CL-tuned models. Save corresponding NSD IDs of images.
+def save_embeddings(project_dir, subj_num, hemisphere, roi, device):
+
+    hemisphere_abbr = 'l' if hemisphere == 'left' else 'r'
+
+    features_save_path = os.path.join(project_dir, "results", "Subj" + str(subj_num), "subj" + str(subj_num) + "_" + 
+                        hemisphere_abbr + "h_" + roi + "_cl_embeddings.npy")
+    ids_save_path = os.path.join(project_dir, "results", "Subj" + str(subj_num), "subj" + str(subj_num) + "_" + 
+                        hemisphere_abbr + "h_" + roi + "_cl_embeddings_img_ids.npy")
+    
+    _, test_dataloader, _, test_size, num_voxels =  get_dataloaders(project_dir, 
+                                device, subj_num, hemisphere, roi, batch_size=1024, use_all_data=False, shuffle=False, return_nsd_id=True)
+
+    # Load CL-tuned model
+    model_dir = os.path.join(project_dir, "cl_models", "Subj" + str(subj_num))
+    model_path = os.path.join(model_dir, "subj" + str(subj_num) + "_" + hemisphere_abbr + "h_" + roi + "_model_e30.pt")
+    h_dim = int(num_voxels*0.8)
+    z_dim = int(num_voxels*0.2)
+    model = CLR_model(num_voxels, h_dim, z_dim)
+    # Some models are saved differently
+    try:
+        model.load_state_dict(torch.load(
+            model_path, map_location=torch.device('cpu'))[0].state_dict())
+    except:
+        try:
+            model.load_state_dict(torch.load(
+                model_path, map_location=torch.device('cpu')).state_dict())
+        except:
+            model.load_state_dict(torch.load(
+                model_path, map_location=torch.device('cpu')))
+    model.to(device)
+    model.eval()
+    feature_extractor = tx.Extractor(
+        model, ["alex.classifier.5"]).to(device)
+    
+    features = np.zeros((test_size, 4096))
+    ids = np.zeros(test_size)
+    for batch_index, data in tqdm(enumerate(test_dataloader), total=len(test_dataloader)):
+        batch_size = data[0].shape[0]
+        if batch_index == 0:
+            low_idx = 0
+            high_idx = batch_size
+        else:
+            low_idx = high_idx
+            high_idx += batch_size
+        # Extract features
+        with torch.no_grad():
+            fmri_dummy = torch.zeros(
+            (batch_size, num_voxels)).to(device)
+            _, alex_out_dict = feature_extractor(fmri_dummy, data[0])
+            # _, alex_out_dict = feature_extractor(fmri_dummy, data[0].to(device))
+        ft = alex_out_dict['alex.classifier.5'].detach().cpu().numpy()
+        features[low_idx:high_idx] = ft
+        ids[low_idx:high_idx] = data[2]
+        del ft
+
+    # Save features and ids
+    np.save(features_save_path, features)
+    np.save(ids_save_path, ids)
