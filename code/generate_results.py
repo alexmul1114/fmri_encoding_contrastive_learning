@@ -3,7 +3,7 @@ from argparse import ArgumentParser
 import torch
 import sys
 from utils import get_n_random_rois
-from results_utils import image_classification_results, compute_mi_lower_bound
+from results_utils import image_classification_results, compute_mi_lower_bound, save_embeddings
 from utils import make_voxels_counts_file
 
 
