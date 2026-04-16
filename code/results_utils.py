@@ -686,14 +686,14 @@ def save_embeddings(project_dir, subj_num, hemisphere, roi, device):
     # Some models are saved differently
     try:
         model.load_state_dict(torch.load(
-            model_path, map_location=torch.device('cpu'))[0].state_dict())
+            model_path, map_location=torch.device('cpu'), weights_only=False)[0].state_dict())
     except:
         try:
             model.load_state_dict(torch.load(
-                model_path, map_location=torch.device('cpu')).state_dict())
+                model_path, map_location=torch.device('cpu'), weights_only=False).state_dict())
         except:
             model.load_state_dict(torch.load(
-                model_path, map_location=torch.device('cpu')))
+                model_path, map_location=torch.device('cpu'), weights_only=False))
     model.to(device)
     model.eval()
     feature_extractor = tx.Extractor(
@@ -713,11 +713,11 @@ def save_embeddings(project_dir, subj_num, hemisphere, roi, device):
         with torch.no_grad():
             fmri_dummy = torch.zeros(
             (batch_size, num_voxels)).to(device)
-            _, alex_out_dict = feature_extractor(fmri_dummy, data[0])
+            _, alex_out_dict = feature_extractor(fmri_dummy, data[1])
             # _, alex_out_dict = feature_extractor(fmri_dummy, data[0].to(device))
         ft = alex_out_dict['alex.classifier.5'].detach().cpu().numpy()
         features[low_idx:high_idx] = ft
-        ids[low_idx:high_idx] = data[2]
+        ids[low_idx:high_idx] = data[3]
         del ft
 
     # Save features and ids

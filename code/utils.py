@@ -139,9 +139,8 @@ class algoDataSet(Dataset):
         img = self.transform(img).to(self.device)
         # Load fmri
         fmri = self.fmri_data[idx].to(self.device)
-
         if self.return_nsd_id:
-            nsd_id = img_path.split("nsd-")[1].split(".")[0]
+            nsd_id = str(img_path).split("nsd-")[1].split(".")[0]
             return fmri, img, idx, nsd_id
         else:
             return fmri, img, idx
