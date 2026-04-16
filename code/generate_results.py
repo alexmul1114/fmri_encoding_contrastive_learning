@@ -34,7 +34,7 @@ if __name__ == '__main__':
     hemisphere = args.hemisphere
     method = args.type
     rois = args.rois
-    use_training_results = args.training
+    # use_training_results = args.training
     img_dataset = args.dataset
     tuning_method = args.tuning_method
 
