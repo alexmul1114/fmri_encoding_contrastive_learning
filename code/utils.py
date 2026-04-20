@@ -523,28 +523,20 @@ def make_voxels_counts_file(project_dir, hemisphere):
     rois = ["V1v", "V1d", "V2v", "V2d", "V3v", "V3d", "hV4", "EBA", "FBA-1", "FBA-2",
             "mTL-bodies", "OFA", "FFA-1", "FFA-2", "mTL-faces", "aTL-faces", "OPA",
             "PPA", "RSC", "OWFA", "VWFA-1", "VWFA-2", "mfs-words", "mTL-words"]
-    avg_voxels_dict = {}
+    voxel_counts_dict = {}
 
     for roi in rois:
-        # Get dataloaders
-        train_dataloaders_subjs = []
         num_voxels_subjs = []
         for subj_num in range(1, 9):
-            train_dataloader, _, _, _, num_voxels = get_dataloaders(
+            _, _, _, _, num_voxels = get_dataloaders(
                 project_dir, device, subj_num, hemisphere, roi, batch_size=1024)
-            if num_voxels != 0:
-                train_dataloaders_subjs.append(train_dataloader)
-                num_voxels_subjs.append(num_voxels)
-        print(hemisphere, roi)
-        print("Number of subjects with ROI present: " +
-              str(len(num_voxels_subjs)))
-        avg_voxels_dict[roi] = num_voxels_subjs
-        print(num_voxels_subjs)
+            num_voxels_subjs.append(num_voxels)
+        voxel_counts_dict[roi] = num_voxels_subjs
 
     hemisphere_abbr = 'l' if hemisphere == 'left' else 'r'
     results_file = os.path.join(
         project_dir, hemisphere_abbr + "h_voxel_counts_rois.joblib")
-    joblib.dump(avg_voxels_dict, results_file)
+    joblib.dump(voxel_counts_dict, results_file)
 
 
 # Compute lower bound on mutual information between CNN features and ROI response using the testing data
