@@ -207,8 +207,9 @@ def image_classification_results(project_dir, subj_num, hemisphere, rois, device
                     voxel_counts_file = os.path.join(
                         project_dir, hemisphere_abbr + "h_voxel_counts_rois.joblib")
                     voxel_counts = joblib.load(voxel_counts_file)
-                    num_voxels_subjs = voxel_counts[roi]
-                    avg_voxel_dim = int(np.mean(np.array(num_voxels_subjs)))
+                    num_voxels_subjs = np.array(voxel_counts[roi])
+                    num_voxels_subjs = np.where(num_voxels_subjs == 0, np.nan, num_voxels_subjs)
+                    avg_voxel_dim = int(np.nanmean(num_voxels_subjs))
                     if pooled_h_method == 'avg':
                         # Load pooled CL model
                         model, _ = get_pooled_CL_model(
@@ -393,8 +394,9 @@ def compute_mi_lower_bound(project_dir, device, subj_num, roi, hemisphere, poole
         voxel_counts_file = os.path.join(
             project_dir, hemisphere_abbr + "h_voxel_counts_rois.joblib")
         voxel_counts = joblib.load(voxel_counts_file)
-        num_voxels_subjs = voxel_counts[roi]
-        avg_voxel_dim = int(np.mean(np.array(num_voxels_subjs)))
+        num_voxels_subjs = np.array(voxel_counts[roi])
+        num_voxels_subjs = np.where(num_voxels_subjs == 0, np.nan, num_voxels_subjs)
+        avg_voxel_dim = int(np.nanmean(num_voxels_subjs))
 
         # Get pooled model
         print("Getting CL predictions...")
