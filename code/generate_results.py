@@ -77,7 +77,8 @@ if __name__ == '__main__':
             compute_mi_lower_bound(
                 project_dir, device, subj_num, roi, hemisphere, pooled=True, h_method='avg')
     elif method == "voxel-counts":
-        make_voxels_counts_file(project_dir, hemisphere)
+        for hemi in ["left", "right"]:
+            make_voxels_counts_file(project_dir, hemi)
     elif method == "save-embeddings":
         for roi in rois:
             save_embeddings(project_dir, subj_num, hemisphere, roi, device)
