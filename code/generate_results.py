@@ -3,7 +3,7 @@ from argparse import ArgumentParser
 import torch
 import sys
 from utils import get_n_random_rois
-from results_utils import image_classification_results, compute_mi_lower_bound, save_embeddings
+from results_utils import image_classification_results, compute_mi_lower_bound, save_embeddings, save_test_fmri_responses
 from utils import make_voxels_counts_file
 
 
@@ -82,5 +82,8 @@ if __name__ == '__main__':
     elif method == "save-embeddings":
         for roi in rois:
             save_embeddings(project_dir, subj_num, hemisphere, roi, device)
+    elif method == "save-test-fmri-responses":
+        for roi in rois:
+            save_test_fmri_responses(project_dir, subj_num, hemisphere, roi, device)
     else:
         print("Invalid method")
