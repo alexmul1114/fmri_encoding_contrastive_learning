@@ -735,14 +735,11 @@ def save_test_fmri_responses(project_dir, subj_num, hemisphere, roi, device):
 
     fmri_responses_save_path = os.path.join(project_dir, "results", "Subj" + str(subj_num), "subj" + str(subj_num) + "_" + 
                         hemisphere_abbr + "h_" + roi + "_test_fmri_responses.npy")
-    ids_save_path = os.path.join(project_dir, "results", "Subj" + str(subj_num), "subj" + str(subj_num) + "_" + 
-                        hemisphere_abbr + "h_" + roi + "_test_fmri_responses_img_ids.npy")
     
     _, test_dataloader, _, test_size, num_voxels =  get_dataloaders(project_dir, 
                                 device, subj_num, hemisphere, roi, batch_size=1024, use_all_data=False, shuffle=False, return_nsd_id=True)
 
     fmri_responses = np.zeros((test_size, num_voxels))
-    ids = np.zeros(test_size)
     for batch_index, data in tqdm(enumerate(test_dataloader), total=len(test_dataloader)):
         batch_size = data[0].shape[0]
         if batch_index == 0:
@@ -752,9 +749,6 @@ def save_test_fmri_responses(project_dir, subj_num, hemisphere, roi, device):
             low_idx = high_idx
             high_idx += batch_size
         fmri_responses[low_idx:high_idx] = data[0]
-        ids[low_idx:high_idx] = data[3]
-        del ft
+        del data
 
-    # Save features and ids
     np.save(fmri_responses_save_path, fmri_responses)
-    np.save(ids_save_path, ids)
