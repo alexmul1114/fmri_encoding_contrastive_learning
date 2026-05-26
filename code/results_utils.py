@@ -680,7 +680,7 @@ def save_embeddings(project_dir, subj_num, hemisphere, roi, device, tuning_metho
                             hemisphere_abbr + "h_" + roi + "_cl_embeddings.npy")
         ids_save_path = os.path.join(project_dir, "results", "Subj" + str(subj_num), "subj" + str(subj_num) + "_" + 
                             hemisphere_abbr + "h_" + roi + "_cl_embeddings_img_ids.npy")
-    elif tuning_method == 'Reg':
+    elif tuning_method == 'reg':
         features_save_path = os.path.join(project_dir, "results", "Subj" + str(subj_num), "subj" + str(subj_num) + "_" +
                             hemisphere_abbr + "h_" + roi + "_reg_embeddings.npy")
         ids_save_path = os.path.join(project_dir, "results", "Subj" + str(subj_num), "subj" + str(subj_num) + "_" + 
@@ -699,7 +699,7 @@ def save_embeddings(project_dir, subj_num, hemisphere, roi, device, tuning_metho
         h_dim = int(num_voxels*0.8)
         z_dim = int(num_voxels*0.2)
         model = CLR_model(num_voxels, h_dim, z_dim)
-    elif tuning_method == 'Reg':
+    elif tuning_method == 'reg':
         model_dir = os.path.join(project_dir, "baseline_models", "nn_reg", "Subj" + str(subj_num))
         model_path = os.path.join(model_dir, "subj" + \
             str(subj_num) + "_" + hemisphere_abbr + \
