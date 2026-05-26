@@ -666,28 +666,43 @@ def load_test_cv_single_subj_results_all_layers(project_dir, subj_num):
 
 
 
-# Generate embeddings for test images from CL-tuned models. Save corresponding NSD IDs of images.
-def save_embeddings(project_dir, subj_num, hemisphere, roi, device):
+# Generate embeddings for test images from CL or regression-tuned models. Save corresponding NSD IDs of images.
+# Options for tuning_method are 'CL' or 'reg'
+def save_embeddings(project_dir, subj_num, hemisphere, roi, device, tuning_method='CL'):
 
     # Strip whitespace from roi to handle cases where it comes from files with trailing spaces
     roi = roi.strip()
 
     hemisphere_abbr = 'l' if hemisphere == 'left' else 'r'
 
-    features_save_path = os.path.join(project_dir, "results", "Subj" + str(subj_num), "subj" + str(subj_num) + "_" +
-                        hemisphere_abbr + "h_" + roi + "_cl_embeddings.npy")
-    ids_save_path = os.path.join(project_dir, "results", "Subj" + str(subj_num), "subj" + str(subj_num) + "_" + 
-                        hemisphere_abbr + "h_" + roi + "_cl_embeddings_img_ids.npy")
+    if tuning_method == 'CL':
+        features_save_path = os.path.join(project_dir, "results", "Subj" + str(subj_num), "subj" + str(subj_num) + "_" +
+                            hemisphere_abbr + "h_" + roi + "_cl_embeddings.npy")
+        ids_save_path = os.path.join(project_dir, "results", "Subj" + str(subj_num), "subj" + str(subj_num) + "_" + 
+                            hemisphere_abbr + "h_" + roi + "_cl_embeddings_img_ids.npy")
+    elif tuning_method == 'Reg':
+        features_save_path = os.path.join(project_dir, "results", "Subj" + str(subj_num), "subj" + str(subj_num) + "_" +
+                            hemisphere_abbr + "h_" + roi + "_reg_embeddings.npy")
+        ids_save_path = os.path.join(project_dir, "results", "Subj" + str(subj_num), "subj" + str(subj_num) + "_" + 
+                            hemisphere_abbr + "h_" + roi + "_reg_embeddings_img_ids.npy")
     
     _, test_dataloader, _, test_size, num_voxels =  get_dataloaders(project_dir, 
                                 device, subj_num, hemisphere, roi, batch_size=1024, use_all_data=False, shuffle=False, return_nsd_id=True)
 
-    # Load CL-tuned model
-    model_dir = os.path.join(project_dir, "cl_models", "Subj" + str(subj_num))
-    model_path = os.path.join(model_dir, "subj" + str(subj_num) + "_" + hemisphere_abbr + "h_" + roi + "_model_e30.pt")
-    h_dim = int(num_voxels*0.8)
-    z_dim = int(num_voxels*0.2)
-    model = CLR_model(num_voxels, h_dim, z_dim)
+    # Load tuned model
+    if tuning_method == 'CL':
+        model_dir = os.path.join(project_dir, "cl_models", "Subj" + str(subj_num))
+        model_path = os.path.join(model_dir, "subj" + str(subj_num) + "_" + hemisphere_abbr + "h_" + roi + "_model_e30.pt")
+        h_dim = int(num_voxels*0.8)
+        z_dim = int(num_voxels*0.2)
+        model = CLR_model(num_voxels, h_dim, z_dim)
+    elif tuning_method == 'Reg':
+        model_dir = os.path.join(project_dir, "baseline_models", "nn_reg", "Subj" + str(subj_num))
+        model_path = os.path.join(model_dir, "subj" + \
+            str(subj_num) + "_" + hemisphere_abbr + \
+            "h_" + roi + "_reg_model_e75.pt")
+        model = fmri_reg(num_voxels)
+
     # Some models are saved differently
     try:
         model.load_state_dict(torch.load(
@@ -716,10 +731,13 @@ def save_embeddings(project_dir, subj_num, hemisphere, roi, device):
             high_idx += batch_size
         # Extract features
         with torch.no_grad():
-            fmri_dummy = torch.zeros(
-            (batch_size, num_voxels)).to(device)
-            _, alex_out_dict = feature_extractor(fmri_dummy, data[1])
-            # _, alex_out_dict = feature_extractor(fmri_dummy, data[0].to(device))
+            if tuning_method == 'CL':
+                fmri_dummy = torch.zeros(
+                (batch_size, num_voxels)).to(device)
+                _, alex_out_dict = feature_extractor(fmri_dummy, data[1])
+                # _, alex_out_dict = feature_extractor(fmri_dummy, data[0].to(device))
+            elif tuning_method == 'Reg':
+                _, alex_out_dict = feature_extractor(data[1].to(device))
         ft = alex_out_dict['alex.classifier.5'].detach().cpu().numpy()
         features[low_idx:high_idx] = ft
         ids[low_idx:high_idx] = data[3]
