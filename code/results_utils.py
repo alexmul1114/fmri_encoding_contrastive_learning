@@ -814,7 +814,10 @@ def save_embeddings(project_dir, subj_num, hemisphere, roi, device, tuning_metho
             elif tuning_method == 'untuned':
                 _, alex_out_dict = feature_extractor(data[1].to(device))
         if tuning_method == 'CL' or tuning_method == 'reg':
-            ft = alex_out_dict['alex.classifier.5'].detach().cpu().numpy()
+            if use_best_intermediate_layer:
+                ft = alex_out_dict["alex." + best_layer].detach().cpu().numpy()
+            else:
+                ft = alex_out_dict['alex.classifier.5'].detach().cpu().numpy()
         elif tuning_method == 'untuned':
             ft = alex_out_dict['classifier.5'].detach().cpu().numpy()
         features[low_idx:high_idx] = ft
