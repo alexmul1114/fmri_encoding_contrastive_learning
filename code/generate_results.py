@@ -82,9 +82,15 @@ if __name__ == '__main__':
     elif method == "save-embeddings-cl":
         for roi in rois:
             save_embeddings(project_dir, subj_num, hemisphere, roi, device, tuning_method='CL')
+    elif method == "save-embeddings-cl-best-encoding-layer":
+        for roi in rois:
+            save_embeddings(project_dir, subj_num, hemisphere, roi, device, tuning_method='CL', use_best_intermediate_layer=True)
     elif method == "save-embeddings-reg":
         for roi in rois:
             save_embeddings(project_dir, subj_num, hemisphere, roi, device, tuning_method='reg')
+    elif method == "save-embeddings-reg-best-encoding-layer":
+        for roi in rois:
+            save_embeddings(project_dir, subj_num, hemisphere, roi, device, tuning_method='reg', use_best_intermediate_layer=True)
     elif method == "save-embeddings-untuned":
         save_embeddings(project_dir, subj_num, 'left', 'V1v', device, tuning_method='untuned')
     elif method == "save-test-fmri-responses":
