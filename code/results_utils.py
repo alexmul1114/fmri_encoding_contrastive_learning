@@ -668,7 +668,8 @@ def load_test_cv_single_subj_results_all_layers(project_dir, subj_num):
 
 # Generate embeddings for test images from untuned, CL, or regression-tuned models. Save corresponding NSD IDs of images.
 # Options for tuning_method are 'untuned', 'CL' or 'reg'
-def save_embeddings(project_dir, subj_num, hemisphere, roi, device, tuning_method='CL'):
+# Optionally get embeddings from best layer for encoding instead of final layer
+def save_embeddings(project_dir, subj_num, hemisphere, roi, device, tuning_method='CL', use_best_intermediate_layer=False):
 
     # Strip whitespace from roi to handle cases where it comes from files with trailing spaces
     roi = roi.strip()
@@ -676,15 +677,27 @@ def save_embeddings(project_dir, subj_num, hemisphere, roi, device, tuning_metho
     hemisphere_abbr = 'l' if hemisphere == 'left' else 'r'
 
     if tuning_method == 'CL':
-        features_save_path = os.path.join(project_dir, "results", "Subj" + str(subj_num), "subj" + str(subj_num) + "_" +
-                            hemisphere_abbr + "h_" + roi + "_cl_embeddings.npy")
-        ids_save_path = os.path.join(project_dir, "results", "Subj" + str(subj_num), "subj" + str(subj_num) + "_" + 
-                            hemisphere_abbr + "h_" + roi + "_cl_embeddings_img_ids.npy")
+        if use_best_intermediate_layer:
+            features_save_path = os.path.join(project_dir, "results", "Subj" + str(subj_num), "subj" + str(subj_num) + "_" +
+                                hemisphere_abbr + "h_" + roi + "_cl_embeddings_best_encoding_layer.npy")
+            ids_save_path = os.path.join(project_dir, "results", "Subj" + str(subj_num), "subj" + str(subj_num) + "_" + 
+                                hemisphere_abbr + "h_" + roi + "_cl_embeddings_best_encoding_layer_img_ids.npy")
+        else:
+            features_save_path = os.path.join(project_dir, "results", "Subj" + str(subj_num), "subj" + str(subj_num) + "_" +
+                                hemisphere_abbr + "h_" + roi + "_cl_embeddings.npy")
+            ids_save_path = os.path.join(project_dir, "results", "Subj" + str(subj_num), "subj" + str(subj_num) + "_" + 
+                                hemisphere_abbr + "h_" + roi + "_cl_embeddings_img_ids.npy")
     elif tuning_method == 'reg':
-        features_save_path = os.path.join(project_dir, "results", "Subj" + str(subj_num), "subj" + str(subj_num) + "_" +
-                            hemisphere_abbr + "h_" + roi + "_reg_embeddings.npy")
-        ids_save_path = os.path.join(project_dir, "results", "Subj" + str(subj_num), "subj" + str(subj_num) + "_" + 
-                            hemisphere_abbr + "h_" + roi + "_reg_embeddings_img_ids.npy")
+        if use_best_intermediate_layer:
+            features_save_path = os.path.join(project_dir, "results", "Subj" + str(subj_num), "subj" + str(subj_num) + "_" +
+                                hemisphere_abbr + "h_" + roi + "_reg_embeddings_best_encoding_layer.npy")
+            ids_save_path = os.path.join(project_dir, "results", "Subj" + str(subj_num), "subj" + str(subj_num) + "_" + 
+                                hemisphere_abbr + "h_" + roi + "_reg_embeddings_best_encoding_layer_img_ids.npy")
+        else:
+            features_save_path = os.path.join(project_dir, "results", "Subj" + str(subj_num), "subj" + str(subj_num) + "_" +
+                                hemisphere_abbr + "h_" + roi + "_reg_embeddings.npy")
+            ids_save_path = os.path.join(project_dir, "results", "Subj" + str(subj_num), "subj" + str(subj_num) + "_" + 
+                                hemisphere_abbr + "h_" + roi + "_reg_embeddings_img_ids.npy")
     elif tuning_method == 'untuned':
         features_save_path = os.path.join(project_dir, "results", "Subj" + str(subj_num), "subj" + str(subj_num) + "_untuned_embeddings.npy")
         ids_save_path = os.path.join(project_dir, "results", "Subj" + str(subj_num), "subj" + str(subj_num) + "_untuned_embeddings_img_ids.npy")
@@ -723,14 +736,63 @@ def save_embeddings(project_dir, subj_num, hemisphere, roi, device, tuning_metho
                     model_path, map_location=torch.device('cpu'), weights_only=False))
     model.to(device)
     model.eval()
+
+    roi_names = ["V1v", "V1d", "V2v", "V2d", "V3v", "V3d", "hV4", "EBA", "FBA-1", "FBA-2",
+                "mTL-bodies", "OFA", "FFA-1", "FFA-2", "mTL-faces", "OPA",
+                 "PPA", "RSC", "OWFA", "VWFA-1", "VWFA-2", "mfs-words", "mTL-words"]
+    hemis = ["lh", "rh"]
+    layers = [
+        "features.2", "features.5", "features.7", "features.9",
+        "features.12", "classifier.2", "classifier.5", "classifier.6"
+    ]
+    layer_dim_dict = {"features.2": 46656, "features.5": 32448, "features.7": 64896, "features.9": 43264,
+                           "features.12": 9216, "classifier.2": 4096, "classifier.5": 4096, "classifier.6": 1000}
     if tuning_method == 'CL' or tuning_method == 'reg':
-        feature_extractor = tx.Extractor(
-            model, ["alex.classifier.5"]).to(device)
+        if use_best_intermediate_layer:
+            _, results, _, _, _ = load_test_cv_single_subj_results_all_layers(project_dir, subj_num)
+            results_dict = {}
+            counter = 0
+            for hemi in hemis:
+                for roi_name in roi_names:
+                    roi = hemi + "_" + roi_name
+                    if not np.isnan(results[counter]).any():
+                        results_dict[roi] = results[counter]
+                    counter += 1
+            best_layer = layers[np.argmax(results_dict[hemisphere_abbr + "h_" + roi])]
+            print("Using layer:", best_layer)
+            feature_extractor = tx.Extractor(
+                model, ["alex." + best_layer]).to(device)
+            output_dim = layer_dim_dict[best_layer]
+        else:
+            feature_extractor = tx.Extractor(
+                model, ["alex.classifier.5"]).to(device)
+            output_dim = 4096
+    elif tuning_method == 'reg':
+        if use_best_intermediate_layer:
+            _, _, results, _, _ = load_test_cv_single_subj_results_all_layers(project_dir, subj_num)
+            results_dict = {}
+            counter = 0
+            for hemi in hemis:
+                for roi_name in roi_names:
+                    roi = hemi + "_" + roi_name
+                    if not np.isnan(results[counter]).any():
+                        results_dict[roi] = results[counter]
+                    counter += 1
+            best_layer = layers[np.argmax(results_dict[hemisphere_abbr + "h_" + roi])]
+            print("Using layer:", best_layer)
+            feature_extractor = tx.Extractor(
+                model, ["alex." + best_layer]).to(device)
+            output_dim = layer_dim_dict[best_layer]
+        else:
+            feature_extractor = tx.Extractor(
+                model, ["alex.classifier.5"]).to(device)
+            output_dim = 4096
     elif tuning_method == 'untuned':
         feature_extractor = tx.Extractor(
             model, ["classifier.5"]).to(device)
+        output_dim = 4096
     
-    features = np.zeros((test_size, 4096))
+    features = np.zeros((test_size, output_dim))
     ids = np.zeros(test_size)
     for batch_index, data in tqdm(enumerate(test_dataloader), total=len(test_dataloader)):
         batch_size = data[0].shape[0]
