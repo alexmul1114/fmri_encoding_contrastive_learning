@@ -70,6 +70,9 @@ class algoDataSet(Dataset):
         self.device = device
         self.return_nsd_id = return_nsd_id
 
+        # Strip whitespace from roi_name to handle cases where it comes from files with trailing spaces
+        roi_name = roi_name.strip()
+
         # Paths to data
         fmri_path = os.path.join(
             data_dir, "training_fmri", "Subj" + str(subj_num))
@@ -150,6 +153,9 @@ class algoDataSet(Dataset):
     
 
 def get_num_voxels(data_dir, subj_num, hemisphere, roi_name):
+
+    # Strip whitespace from roi_name to handle cases where it comes from files with trailing spaces
+    roi_name = roi_name.strip()
 
     fmri_path = os.path.join(
         data_dir, "training_fmri", "Subj" + str(subj_num))
