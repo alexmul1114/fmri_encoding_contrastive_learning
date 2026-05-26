@@ -79,9 +79,14 @@ if __name__ == '__main__':
     elif method == "voxel-counts":
         for hemi in ["left", "right"]:
             make_voxels_counts_file(project_dir, hemi)
-    elif method == "save-embeddings":
+    elif method == "save-embeddings-cl":
         for roi in rois:
-            save_embeddings(project_dir, subj_num, hemisphere, roi, device)
+            save_embeddings(project_dir, subj_num, hemisphere, roi, device, tuning_method='CL')
+    elif method == "save-embeddings-reg":
+        for roi in rois:
+            save_embeddings(project_dir, subj_num, hemisphere, roi, device, tuning_method='reg')
+    elif method == "save-embeddings-untuned":
+        save_embeddings(project_dir, 1, 'left', 'V1v', device, tuning_method='untuned')
     elif method == "save-test-fmri-responses":
         for roi in rois:
             save_test_fmri_responses(project_dir, subj_num, hemisphere, roi, device)
