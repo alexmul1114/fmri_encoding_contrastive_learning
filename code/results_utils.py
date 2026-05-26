@@ -754,9 +754,9 @@ def save_embeddings(project_dir, subj_num, hemisphere, roi, device, tuning_metho
             counter = 0
             for hemi in hemis:
                 for roi_name in roi_names:
-                    roi = hemi + "_" + roi_name
+                    current_roi = hemi + "_" + roi_name
                     if not np.isnan(results[counter]).any():
-                        results_dict[roi] = results[counter]
+                        results_dict[current_roi] = results[counter]
                     counter += 1
             best_layer = layers[np.argmax(results_dict[hemisphere_abbr + "h_" + roi])]
             print("Using layer:", best_layer)
@@ -774,9 +774,9 @@ def save_embeddings(project_dir, subj_num, hemisphere, roi, device, tuning_metho
             counter = 0
             for hemi in hemis:
                 for roi_name in roi_names:
-                    roi = hemi + "_" + roi_name
+                    current_roi = hemi + "_" + roi_name
                     if not np.isnan(results[counter]).any():
-                        results_dict[roi] = results[counter]
+                        results_dict[current_roi] = results[counter]
                     counter += 1
             best_layer = layers[np.argmax(results_dict[hemisphere_abbr + "h_" + roi])]
             print("Using layer:", best_layer)
