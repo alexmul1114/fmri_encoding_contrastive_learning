@@ -686,8 +686,8 @@ def save_embeddings(project_dir, subj_num, hemisphere, roi, device, tuning_metho
         ids_save_path = os.path.join(project_dir, "results", "Subj" + str(subj_num), "subj" + str(subj_num) + "_" + 
                             hemisphere_abbr + "h_" + roi + "_reg_embeddings_img_ids.npy")
     elif tuning_method == 'untuned':
-        features_save_path = os.path.join(project_dir, "results", "untuned_embeddings.npy")
-        ids_save_path = os.path.join(project_dir, "results", "untuned_embeddings_img_ids.npy")
+        features_save_path = os.path.join(project_dir, "results", "Subj" + str(subj_num), "subj" + str(subj_num) + "_untuned_embeddings.npy")
+        ids_save_path = os.path.join(project_dir, "results", "Subj" + str(subj_num), "subj" + str(subj_num) + "_untuned_embeddings_img_ids.npy")
     
     _, test_dataloader, _, test_size, num_voxels =  get_dataloaders(project_dir, 
                                 device, subj_num, hemisphere, roi, batch_size=1024, use_all_data=False, shuffle=False, return_nsd_id=True)
