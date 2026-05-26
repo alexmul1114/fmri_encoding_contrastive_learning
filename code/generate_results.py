@@ -86,7 +86,7 @@ if __name__ == '__main__':
         for roi in rois:
             save_embeddings(project_dir, subj_num, hemisphere, roi, device, tuning_method='reg')
     elif method == "save-embeddings-untuned":
-        save_embeddings(project_dir, 1, 'left', 'V1v', device, tuning_method='untuned')
+        save_embeddings(project_dir, subj_num, 'left', 'V1v', device, tuning_method='untuned')
     elif method == "save-test-fmri-responses":
         for roi in rois:
             save_test_fmri_responses(project_dir, subj_num, hemisphere, roi, device)
