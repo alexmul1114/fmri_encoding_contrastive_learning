@@ -669,9 +669,12 @@ def load_test_cv_single_subj_results_all_layers(project_dir, subj_num):
 # Generate embeddings for test images from CL-tuned models. Save corresponding NSD IDs of images.
 def save_embeddings(project_dir, subj_num, hemisphere, roi, device):
 
+    # Strip whitespace from roi to handle cases where it comes from files with trailing spaces
+    roi = roi.strip()
+
     hemisphere_abbr = 'l' if hemisphere == 'left' else 'r'
 
-    features_save_path = os.path.join(project_dir, "results", "Subj" + str(subj_num), "subj" + str(subj_num) + "_" + 
+    features_save_path = os.path.join(project_dir, "results", "Subj" + str(subj_num), "subj" + str(subj_num) + "_" +
                         hemisphere_abbr + "h_" + roi + "_cl_embeddings.npy")
     ids_save_path = os.path.join(project_dir, "results", "Subj" + str(subj_num), "subj" + str(subj_num) + "_" + 
                         hemisphere_abbr + "h_" + roi + "_cl_embeddings_img_ids.npy")
@@ -731,9 +734,12 @@ def save_embeddings(project_dir, subj_num, hemisphere, roi, device):
 # Use to match format of save_embeddings function.
 def save_test_fmri_responses(project_dir, subj_num, hemisphere, roi, device):
 
+    # Strip whitespace from roi to handle cases where it comes from files with trailing spaces
+    roi = roi.strip()
+
     hemisphere_abbr = 'l' if hemisphere == 'left' else 'r'
 
-    fmri_responses_save_path = os.path.join(project_dir, "results", "Subj" + str(subj_num), "subj" + str(subj_num) + "_" + 
+    fmri_responses_save_path = os.path.join(project_dir, "results", "Subj" + str(subj_num), "subj" + str(subj_num) + "_" +
                         hemisphere_abbr + "h_" + roi + "_test_fmri_responses.npy")
     
     _, test_dataloader, _, test_size, num_voxels =  get_dataloaders(project_dir, 
