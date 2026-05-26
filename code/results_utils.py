@@ -666,8 +666,8 @@ def load_test_cv_single_subj_results_all_layers(project_dir, subj_num):
 
 
 
-# Generate embeddings for test images from CL or regression-tuned models. Save corresponding NSD IDs of images.
-# Options for tuning_method are 'CL' or 'reg'
+# Generate embeddings for test images from untuned, CL, or regression-tuned models. Save corresponding NSD IDs of images.
+# Options for tuning_method are 'untuned', 'CL' or 'reg'
 def save_embeddings(project_dir, subj_num, hemisphere, roi, device, tuning_method='CL'):
 
     # Strip whitespace from roi to handle cases where it comes from files with trailing spaces
@@ -685,6 +685,9 @@ def save_embeddings(project_dir, subj_num, hemisphere, roi, device, tuning_metho
                             hemisphere_abbr + "h_" + roi + "_reg_embeddings.npy")
         ids_save_path = os.path.join(project_dir, "results", "Subj" + str(subj_num), "subj" + str(subj_num) + "_" + 
                             hemisphere_abbr + "h_" + roi + "_reg_embeddings_img_ids.npy")
+    elif tuning_method == 'untuned':
+        features_save_path = os.path.join(project_dir, "results", "untuned_embeddings.npy")
+        ids_save_path = os.path.join(project_dir, "results", "untuned_embeddings_img_ids.npy")
     
     _, test_dataloader, _, test_size, num_voxels =  get_dataloaders(project_dir, 
                                 device, subj_num, hemisphere, roi, batch_size=1024, use_all_data=False, shuffle=False, return_nsd_id=True)
@@ -702,22 +705,30 @@ def save_embeddings(project_dir, subj_num, hemisphere, roi, device, tuning_metho
             str(subj_num) + "_" + hemisphere_abbr + \
             "h_" + roi + "_reg_model_e75.pt")
         model = fmri_reg(num_voxels)
+    elif tuning_method == 'untuned':
+        model = torch.hub.load('pytorch/vision:v0.10.0', 'alexnet',
+                          weights=AlexNet_Weights.IMAGENET1K_V1)
 
-    # Some models are saved differently
-    try:
-        model.load_state_dict(torch.load(
-            model_path, map_location=torch.device('cpu'), weights_only=False)[0].state_dict())
-    except:
+    # Some tuned models are saved differently
+    if tuning_method == 'CL' or tuning_method == 'reg':
         try:
             model.load_state_dict(torch.load(
-                model_path, map_location=torch.device('cpu'), weights_only=False).state_dict())
+                model_path, map_location=torch.device('cpu'), weights_only=False)[0].state_dict())
         except:
-            model.load_state_dict(torch.load(
-                model_path, map_location=torch.device('cpu'), weights_only=False))
+            try:
+                model.load_state_dict(torch.load(
+                    model_path, map_location=torch.device('cpu'), weights_only=False).state_dict())
+            except:
+                model.load_state_dict(torch.load(
+                    model_path, map_location=torch.device('cpu'), weights_only=False))
     model.to(device)
     model.eval()
-    feature_extractor = tx.Extractor(
-        model, ["alex.classifier.5"]).to(device)
+    if tuning_method == 'CL' or tuning_method == 'reg':
+        feature_extractor = tx.Extractor(
+            model, ["alex.classifier.5"]).to(device)
+    elif tuning_method == 'untuned':
+        feature_extractor = tx.Extractor(
+            model, ["classifier.5"]).to(device)
     
     features = np.zeros((test_size, 4096))
     ids = np.zeros(test_size)
@@ -736,7 +747,9 @@ def save_embeddings(project_dir, subj_num, hemisphere, roi, device, tuning_metho
                 (batch_size, num_voxels)).to(device)
                 _, alex_out_dict = feature_extractor(fmri_dummy, data[1])
                 # _, alex_out_dict = feature_extractor(fmri_dummy, data[0].to(device))
-            elif tuning_method == 'Reg':
+            elif tuning_method == 'reg':
+                _, alex_out_dict = feature_extractor(data[1].to(device))
+            elif tuning_method == 'untuned':
                 _, alex_out_dict = feature_extractor(data[1].to(device))
         ft = alex_out_dict['alex.classifier.5'].detach().cpu().numpy()
         features[low_idx:high_idx] = ft
